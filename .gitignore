@@ -46,6 +46,13 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Node.js
+node_modules/
+editor-web/dist/
+
+# Generated bundle (built from editor-web/src)
+Sources/StickyNotes/Resources/Editor/editor.bundle.js
+
 # Claude Code
 .claude/
 

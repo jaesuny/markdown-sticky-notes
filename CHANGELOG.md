@@ -4,6 +4,98 @@ All notable changes to the Sticky Notes project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 2: Markdown + Math Rendering ✅ COMPLETED - 2024-02-04
+
+#### Added
+- **CodeMirror 6 Integration**
+  - Upgraded from basic textarea to CodeMirror 6 professional editor
+  - Full ES6 module support with Webpack bundling
+  - Editor bundle size: ~809KB (including KaTeX fonts)
+
+- **Markdown Support**
+  - Real-time markdown syntax highlighting
+  - `@codemirror/lang-markdown` for markdown language support
+  - `@codemirror/language-data` for multi-language code block support
+  - Syntax highlighting for code blocks (JavaScript, Python, etc.)
+  - defaultHighlightStyle for consistent code highlighting
+
+- **Math Rendering (KaTeX)**
+  - KaTeX 0.16.x integration for LaTeX math rendering
+  - Inline math: `$...$` notation
+  - Block math: `$$...$$` notation
+  - Custom ViewPlugin for real-time math rendering
+  - Math error handling with visual feedback
+  - Custom math styling (inline and block)
+
+- **Keyboard Shortcuts - macOS Text Navigation**
+  - Cmd+Up/Down: Move to document start/end
+  - Cmd+Shift+Up/Down: Select to document start/end
+  - (Opt+Left/Right: Planned for Phase 3)
+
+- **Keyboard Shortcuts - Markdown Formatting**
+  - Cmd+B: Bold text (`**text**`)
+  - Cmd+I: Italic text (`*text*`)
+  - Cmd+K: Insert link (`[text](url)`)
+  - Cmd+E: Inline code (`` `code` ``)
+  - Cmd+S: Save note
+
+- **Obsidian-Inspired Theme**
+  - Custom editor theme with Obsidian-style aesthetics
+  - Automatic dark mode detection
+  - Light and dark theme support
+  - Purple accent color (#5c6ac4 / #8c9eff)
+  - Transparent background integration
+  - Custom styling for:
+    - Headings (H1-H6 with appropriate sizes)
+    - Bold and italic text
+    - Inline code blocks
+    - Math expressions (inline and block)
+
+- **Build System**
+  - Webpack 5 configuration for editor bundling
+  - Automatic editor rebuild in build-app.sh
+  - npm scripts for build and watch mode
+  - CSS-loader and style-loader for CSS bundling
+
+- **Editor Features**
+  - Line wrapping for better readability
+  - Custom cursor color matching theme
+  - Proper focus handling
+  - 300ms debounce for content changes
+  - Swift-JavaScript bridge integration maintained
+
+#### Technical Details
+- **JavaScript Dependencies**:
+  - @codemirror/state: ^6.5.4
+  - @codemirror/view: ^6.39.12
+  - @codemirror/commands: ^6.10.1
+  - @codemirror/lang-markdown: ^6.5.0
+  - @codemirror/language: ^6.12.1
+  - @codemirror/language-data: ^6.5.2
+  - katex: ^0.16.28
+
+- **Build Tools**:
+  - webpack: ^5.105.0
+  - webpack-cli: ^6.0.1
+  - css-loader: ^7.1.3
+  - style-loader: ^4.0.0
+
+- **Project Structure**:
+  - `editor-web/`: Web editor source and build
+  - `editor-web/src/editor.js`: Main editor implementation
+  - `editor-web/dist/editor.bundle.js`: Built bundle
+  - Automatic copy to `Sources/StickyNotes/Resources/Editor/`
+
+#### Testing
+- Created `MARKDOWN_TEST.md` with comprehensive test cases
+- Tested all heading levels (H1-H6)
+- Tested text formatting (bold, italic, combination)
+- Tested lists (ordered, unordered, nested)
+- Tested links and images
+- Tested inline and block code
+- Tested inline and block math equations
+- Tested blockquotes, tables, horizontal rules
+
 ### Phase 1: Foundation ✅ COMPLETED - 2024-02-04
 
 #### Added
@@ -85,98 +177,51 @@ All notable changes to the Sticky Notes project will be documented in this file.
 - **Web View**: WKWebView (WebKit)
 - **State Management**: Combine framework
 
-#### Known Limitations
-- Basic textarea editor (CodeMirror integration pending)
-- No markdown live preview yet
-- No LaTeX math rendering yet
-- Limited keyboard shortcuts
-- No preferences window
-- No export functionality (UI)
-- Cannot delete notes via UI (only through empty note cleanup)
-
-### Phase 2: Markdown + Math Rendering (Planned)
-
-#### Planned Features
-- CodeMirror 6 integration
-- Live markdown preview with ViewPlugin
-- KaTeX for LaTeX math rendering
-- Syntax highlighting for code blocks
-- Obsidian-inspired theming (light + dark)
-- Markdown element styling (headings, lists, blockquotes, etc.)
-
-### Phase 3: Keyboard Shortcuts (Planned)
-
-#### Planned Features
-- macOS text navigation shortcuts
-  - Cmd+Up/Down: Document start/end
-  - Cmd+Shift+Up/Down: Select to document start/end
-  - Opt+Left/Right: Move by word
-  - Opt+Shift+Left/Right: Select by word
-  - Cmd+Backspace: Delete line
-  - Opt+Backspace: Delete word
-- Markdown formatting shortcuts
-  - Cmd+B: Bold
-  - Cmd+I: Italic
-  - Cmd+K: Insert link
-  - Cmd+Shift+C: Code block
-  - Cmd+E: Inline code
-- App-level shortcuts
-  - Cmd+W: Close window
-  - Cmd+M: Minimize
-  - Cmd+,: Preferences
-
-### Phase 4: Multi-Window & Sticky Features (Planned)
-
-#### Planned Features
-- Enhanced transparency controls
-- Window positioning improvements
-- Empty note deletion option
-- Window cascade positioning
-- Better window restoration
-
-### Phase 5: Polish & Features (Planned)
-
-#### Planned Features
-- Preferences window
-  - Theme selection (light/dark/auto)
-  - Default transparency
-  - Font size adjustment
-  - Shortcut customization
-- Menu bar enhancements
-  - File, Edit, View, Help menus
-- Export functionality
-  - Export to .md
-  - Export to HTML
-  - Export to PDF
-- Optional toolbar
-  - Formatting buttons
-  - Quick actions
-- Performance optimizations
-  - Viewport-only rendering
-  - KaTeX caching
-  - Memory leak fixes
-- Error handling improvements
-- Animation polish
-
-### Phase 6: Testing & Refinement (Planned)
-
-#### Planned Tasks
-- Cross-version macOS testing (12, 13, 14)
-- Edge case testing
-- Performance profiling
-- Memory leak detection
-- Bug fixes
-- Complete documentation
-
 ---
 
 ## Version History
+
+### v0.2.0 - Phase 2 Complete (2024-02-04)
+- Added CodeMirror 6 professional editor
+- Added KaTeX math rendering
+- Added markdown syntax highlighting
+- Added macOS keyboard shortcuts
+- Added Obsidian-inspired theme
+- Improved editor experience significantly
 
 ### v0.1.0 - Phase 1 Foundation (2024-02-04)
 - Initial release with basic sticky note functionality
 - Native macOS app with floating windows
 - Basic text editing with auto-save
 - Window state persistence
+
+---
+
+## Planned Features
+
+### Phase 3: Enhanced Keyboard Shortcuts (Next)
+- Additional macOS text navigation (Opt+Left/Right, etc.)
+- More markdown formatting shortcuts
+- App-level shortcut improvements
+- Keyboard shortcut customization
+
+### Phase 4: Multi-Window & Polish
+- Enhanced window management
+- Improved transparency controls
+- Better window positioning
+- UI refinements
+
+### Phase 5: Advanced Features
+- Preferences window
+- Export functionality (MD, HTML, PDF)
+- Optional toolbar
+- Performance optimizations
+
+### Phase 6: Testing & Release
+- Comprehensive testing
+- Bug fixes
+- Documentation completion
+- Public release preparation
 
 ---
 

@@ -6,6 +6,13 @@ set -e
 
 echo "Building StickyNotes.app..."
 
+# Build the web editor first
+echo "Building web editor..."
+cd editor-web
+npm run build
+cd ..
+echo "✅ Web editor built"
+
 # Build the executable
 swift build -c release
 

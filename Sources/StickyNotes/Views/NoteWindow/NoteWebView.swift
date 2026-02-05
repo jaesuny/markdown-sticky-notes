@@ -29,6 +29,35 @@ class NoteWebView: WKWebView {
         self.bridge = EditorBridge(noteId: note.id, coordinator: coordinator)
         userContentController.add(bridge!, name: "bridge")
 
+        // Inject console.log interceptor
+        let consoleScript = WKUserScript(
+            source: """
+            (function() {
+                var originalLog = console.log;
+                console.log = function() {
+                    var message = Array.prototype.slice.call(arguments).join(' ');
+                    window.webkit.messageHandlers.bridge.postMessage({
+                        action: 'log',
+                        message: message
+                    });
+                    originalLog.apply(console, arguments);
+                };
+                var originalError = console.error;
+                console.error = function() {
+                    var message = Array.prototype.slice.call(arguments).join(' ');
+                    window.webkit.messageHandlers.bridge.postMessage({
+                        action: 'error',
+                        message: 'ERROR: ' + message
+                    });
+                    originalError.apply(console, arguments);
+                };
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        userContentController.addUserScript(consoleScript)
+
         // Configure web view appearance
         setValue(false, forKey: "drawsBackground")
 
@@ -43,14 +72,25 @@ class NoteWebView: WKWebView {
     // MARK: - Editor Loading
 
     private func loadEditor() {
-        guard let htmlURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Resources/Editor") else {
-            print("[NoteWebView] Error: Could not find index.html")
+        // For .app bundle, resources are in Contents/Resources/
+        let bundleURL = Bundle.main.bundleURL
+        let htmlURL = bundleURL.appendingPathComponent("Contents/Resources/Editor/index.html")
+
+        print("[NoteWebView] Bundle path: \(Bundle.main.bundlePath)")
+        print("[NoteWebView] Looking for: \(htmlURL.path)")
+        print("[NoteWebView] File exists: \(FileManager.default.fileExists(atPath: htmlURL.path))")
+
+        guard FileManager.default.fileExists(atPath: htmlURL.path) else {
+            print("[NoteWebView] Error: Could not find index.html at \(htmlURL.path)")
             loadFallbackEditor()
             return
         }
 
-        loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
-        print("[NoteWebView] Loading editor from: \(htmlURL.path)")
+        // Allow read access to entire Resources directory so KaTeX fonts can load
+        let resourcesDir = bundleURL.appendingPathComponent("Contents/Resources")
+        loadFileURL(htmlURL, allowingReadAccessTo: resourcesDir)
+        print("[NoteWebView] ✅ Loading editor from: \(htmlURL.path)")
+        print("[NoteWebView] ✅ Read access granted to: \(resourcesDir.path)")
     }
 
     /// Load a fallback inline editor if the HTML file is not found
