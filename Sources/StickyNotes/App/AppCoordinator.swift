@@ -33,15 +33,17 @@ class AppCoordinator: ObservableObject {
         windowManager.openWindow(for: note, coordinator: self)
     }
 
-    /// Close a note window
+    /// Called when a note window is closing (from windowWillClose delegate)
+    /// The window is already closing — only remove tracking and save.
     /// - Parameter noteId: ID of the note to close
     func closeNoteWindow(_ noteId: UUID) {
+        // Remove from tracking (do NOT call close — window is already closing)
+        windowManager.removeWindow(for: noteId)
+
         // Save the note immediately before closing
         if let note = noteManager.getNote(noteId) {
             noteManager.saveNoteImmediately(note)
         }
-
-        windowManager.closeWindow(for: noteId)
 
         // Optionally delete empty notes
         if let note = noteManager.getNote(noteId), note.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

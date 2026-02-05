@@ -9,9 +9,10 @@
 import { EditorState, StateField } from '@codemirror/state';
 import { EditorView, keymap, Decoration, WidgetType, ViewPlugin } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { markdown } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
+import { GFM } from '@lezer/markdown';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -76,6 +77,31 @@ class InlineCodeWidget extends WidgetType {
     span.className = 'cm-inline-code-widget';
     span.textContent = this.code;
     return span;
+  }
+
+  ignoreEvent() { return false; }
+}
+
+class TaskCheckboxWidget extends WidgetType {
+  constructor(checked, pos) {
+    super();
+    this.checked = checked;
+    this.pos = pos;
+  }
+
+  eq(other) { return other.checked === this.checked && other.pos === this.pos; }
+
+  toDOM(view) {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = this.checked;
+    input.className = 'cm-task-checkbox';
+    input.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const newText = this.checked ? '[ ]' : '[x]';
+      view.dispatch({ changes: { from: this.pos, to: this.pos + 3, insert: newText } });
+    });
+    return input;
   }
 
   ignoreEvent() { return false; }
@@ -214,6 +240,64 @@ function buildMarkdownDecos(view) {
               addLineDeco(node.from, 'cm-md-hr');
             }
             break;
+
+          // ── Strikethrough ───────────────────────────────────
+          case 'Strikethrough':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-strikethrough' }).range(node.from, node.to)
+            );
+            break;
+          case 'StrikethroughMark':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-marker' }).range(node.from, node.to)
+            );
+            break;
+
+          // ── Lists ───────────────────────────────────────────
+          case 'ListMark':
+            // Task list dashes are handled by TaskMarker case
+            if (!view.state.sliceDoc(node.to, node.to + 2).startsWith(' [')) {
+              builder.push(
+                Decoration.mark({ class: 'cm-md-list-mark' }).range(node.from, node.to)
+              );
+            }
+            break;
+
+          // ── Task List ───────────────────────────────────────
+          // Replace "- [x]" or "- [ ]" as a single unit with a checkbox widget
+          case 'TaskMarker': {
+            // Find the ListMark before this TaskMarker: "- " precedes "[x]"
+            const listMarkFrom = node.from - 2; // "- " is 2 chars before TaskMarker
+            const fullFrom = listMarkFrom >= 0 &&
+              view.state.sliceDoc(listMarkFrom, node.from) === '- '
+              ? listMarkFrom : node.from;
+            if (cursorInside(fullFrom, node.to)) break;
+            const markerText = view.state.sliceDoc(node.from, node.to);
+            const checked = markerText.includes('x') || markerText.includes('X');
+            builder.push(
+              Decoration.replace({
+                widget: new TaskCheckboxWidget(checked, node.from),
+              }).range(fullFrom, node.to)
+            );
+            break;
+          }
+
+          // ── Table ───────────────────────────────────────────
+          case 'Table': {
+            const startLine = view.state.doc.lineAt(node.from).number;
+            const endLine = view.state.doc.lineAt(node.to).number;
+            for (let i = startLine; i <= endLine; i++) {
+              addLineDeco(view.state.doc.line(i).from, 'cm-md-table');
+            }
+            break;
+          }
+          case 'TableHeader':
+            addLineDeco(node.from, 'cm-md-table-header');
+            break;
+          case 'TableDelimiter':
+            addLineDeco(node.from, 'cm-md-table-delimiter');
+            break;
+
         }
       },
     });
@@ -528,6 +612,30 @@ const editorTheme = EditorView.theme({
     color: '#d73a49',
     backgroundColor: 'rgba(215, 58, 73, 0.1)',
   },
+
+  // ── Strikethrough ──────────────────────────────────────
+  '.cm-md-strikethrough': { textDecoration: 'line-through', opacity: '0.6' },
+
+  // ── List markers ───────────────────────────────────────
+  '.cm-md-list-mark': { color: '#0969da', fontWeight: '700' },
+  '.cm-md-task-dash': { fontSize: '0px' },
+
+  // ── Task checkbox ──────────────────────────────────────
+  '.cm-task-checkbox': {
+    cursor: 'pointer',
+    margin: '0 4px 0 0',
+    transform: 'scale(1.15)',
+    verticalAlign: 'middle',
+  },
+
+  // ── Table ──────────────────────────────────────────────
+  '.cm-md-table': {
+    fontFamily: 'Monaco, Menlo, "Courier New", monospace',
+    fontSize: '0.9em',
+  },
+  '.cm-md-table-header': { fontWeight: '700' },
+  '.cm-md-table-delimiter': { opacity: '0.3' },
+
 }, { dark: false });
 
 const darkTheme = EditorView.theme({
@@ -541,6 +649,8 @@ const darkTheme = EditorView.theme({
   '.cm-inline-code-widget': { backgroundColor: 'rgba(255,255,255,0.1)' },
   '.cm-math-inline': { backgroundColor: 'rgba(140,158,255,0.1)' },
   '.cm-math-block': { backgroundColor: 'rgba(140,158,255,0.07)' },
+  '.cm-md-list-mark': { color: '#8c9eff' },
+  '.cm-md-table': { backgroundColor: 'rgba(255,255,255,0.03)' },
 }, { dark: true });
 
 // ─── Editor initialization ─────────────────────────────────────────────────
@@ -556,7 +666,7 @@ function initEditor(initialContent = '') {
     extensions: [
       history(),
       keymap.of([...blockMathNavKeymap, ...formattingKeymap, ...defaultKeymap, ...historyKeymap]),
-      markdown({ base: markdownLanguage }),
+      markdown({ extensions: GFM }),
       syntaxHighlighting(markdownHighlightStyle),
       markdownDecoPlugin,
       mathRenderField,
@@ -582,6 +692,17 @@ function initEditor(initialContent = '') {
   });
 
   log('Editor ready');
+
+  // GFM verification: test parse after a short delay
+  setTimeout(() => {
+    const testState = EditorState.create({
+      doc: '- [x] test\n~~strike~~',
+      extensions: [markdown({ extensions: GFM })],
+    });
+    const nodes = [];
+    syntaxTree(testState).iterate({ enter(n) { nodes.push(n.name); } });
+    log('GFM nodes: ' + nodes.join(', '));
+  }, 500);
 }
 
 // ─── Swift bridge interface ────────────────────────────────────────────────
@@ -597,6 +718,19 @@ window.setContent = function (content) {
 
 window.getContent = function () {
   return editorView ? editorView.state.doc.toString() : '';
+};
+
+// Debug: dump syntax tree nodes
+window.dumpTree = function () {
+  if (!editorView) return;
+  const nodes = [];
+  syntaxTree(editorView.state).iterate({
+    enter(node) {
+      const text = editorView.state.sliceDoc(node.from, Math.min(node.to, node.from + 30));
+      nodes.push(`${node.name} [${node.from}-${node.to}] "${text}"`);
+    }
+  });
+  console.log(nodes.join('\n'));
 };
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────

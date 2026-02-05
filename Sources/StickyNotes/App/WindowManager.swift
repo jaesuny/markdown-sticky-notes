@@ -29,16 +29,22 @@ class WindowManager: ObservableObject {
         print("[WindowManager] Opened window for note: \(note.id)")
     }
 
-    /// Close a window for a note
+    /// Remove a window controller from tracking (does NOT call close)
     /// - Parameter noteId: ID of the note
-    func closeWindow(for noteId: UUID) {
-        guard let windowController = windowControllers[noteId] else {
+    func removeWindow(for noteId: UUID) {
+        guard windowControllers.removeValue(forKey: noteId) != nil else {
             return
         }
+        print("[WindowManager] Removed window for note: \(noteId)")
+    }
 
+    /// Close a window for a note (used by syncWindowsWithNotes only)
+    /// - Parameter noteId: ID of the note
+    func closeWindow(for noteId: UUID) {
+        guard let windowController = windowControllers.removeValue(forKey: noteId) else {
+            return
+        }
         windowController.close()
-        windowControllers.removeValue(forKey: noteId)
-
         print("[WindowManager] Closed window for note: \(noteId)")
     }
 

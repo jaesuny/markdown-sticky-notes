@@ -52,7 +52,7 @@ const { from: curFrom, to: curTo } = state.selection.main;
 function cursorInside(from, to) { return curFrom >= from && curTo <= to; }
 if (cursorInside(node.from, node.to)) break; // skip replace, show raw
 ```
-적용 대상: InlineCode, 인라인/블록 수식, HR
+적용 대상: InlineCode, 인라인/블록 수식, HR, TaskMarker
 
 ### Key Files
 
@@ -74,7 +74,7 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 
 - **Phase 1 ✅**: App structure, NSPanel windows, persistence, WKWebView
 - **Phase 2 ✅**: CodeMirror 6, syntax tree decorations, KaTeX math, cursor unfold
-- **Phase 3**: 추가 마크다운 요소 (취소선, 체크박스, 이미지, 테이블)
+- **Phase 3 **: 추가 마크다운 요소 (취소선, 리스트 스타일, 체크박스 위젯, 테이블)
 - **Phase 4**: Multi-window 개선
 - **Phase 5**: Preferences, export
 
@@ -88,14 +88,23 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 6. **WKWebView 리소스**: `loadFileURL()`에 Resources 디렉토리 전체 read access 필요 (KaTeX 폰트)
 7. **Webpack 단일 번들**: `splitChunks: false`, 폰트 `asset/inline` — WKWebView는 청크/외부 파일 로딩 불가
 8. **한글 수식 필터**: KaTeX가 한글 미지원 — `/[ㄱ-ㅎㅏ-ㅣ가-힣]/` regex로 건너뛰기
+9. **`defaultKeymap` macOS 바인딩**: Cmd+Arrow, Cmd+Shift+Arrow, Opt+Arrow 등 이미 포함됨 — 커스텀 핸들러로 재정의하면 scrollIntoView, goal column 등 네이티브 동작이 깨짐. 포맷팅 키(Cmd+B/I/K)만 추가할 것
+10. **`markdown({ base: markdownLanguage })` GFM 손실**: `parser.configure()` 내부 호출이 GFM 확장을 덮어씀 — `import { GFM } from '@lezer/markdown'` 후 `markdown({ extensions: GFM })` 사용
+11. **NSWindow 이중 close**: `windowWillClose` → `closeWindow()` → `close()` → `windowWillClose` 무한 재귀 — `windowWillClose`에서는 `removeWindow()`(딕셔너리 제거만), `closeWindow()`는 `syncWindowsWithNotes`에서만 사용
 
 ## Lezer Markdown Node Names
 
 에디터에서 사용하는 syntax tree 노드:
-`ATXHeading1`~`6`, `HeaderMark`, `StrongEmphasis`, `Emphasis`, `EmphasisMark`, `InlineCode`, `CodeMark`, `FencedCode`, `Link`, `LinkMark`, `URL`, `Blockquote`, `QuoteMark`, `HorizontalRule`, `BulletList`, `OrderedList`, `ListItem`, `ListMark`
+`ATXHeading1`~`6`, `HeaderMark`, `StrongEmphasis`, `Emphasis`, `EmphasisMark`, `InlineCode`, `CodeMark`, `FencedCode`, `Link`, `LinkMark`, `URL`, `Blockquote`, `QuoteMark`, `HorizontalRule`, `BulletList`, `OrderedList`, `ListItem`, `ListMark`, `Strikethrough`, `StrikethroughMark`, `Table`, `TableHeader`, `TableRow`, `TableCell`, `TableDelimiter`, `Task`, `TaskMarker`
+
+## Known Issues (미해결)
+
+- ~~**Task list `-` 마커 숨기기**~~: 해결됨 — TaskMarker의 `Decoration.replace()` 범위를 `- [x]` 전체로 확장. 이전 실패 원인은 앱 미재시작 (WKWebView 캐시)
+- **수식/테이블 블록 주변 커서 이동**: 렌더된 수식 블록($$...$$)과 테이블 주변에서 화살표 키가 macOS 네이티브와 다르게 동작. 노트 끝에서 위/아래 화살표 반복 시 커서가 문서 맨 처음으로 점프하는 버그 있음. `blockMathNavKeymap` 개선 필요
 
 ## Debugging
 
 - **Swift**: `print()` → Xcode/terminal 콘솔
 - **JS**: `console.log()` → Swift 콘솔로 전달됨
 - **DOM 검사**: Safari > Develop > [Mac] > StickyNotes > index.html
+- **Syntax tree 덤프**: Safari 콘솔에서 `dumpTree()` 실행 — 모든 노드명/위치/텍스트 출력
