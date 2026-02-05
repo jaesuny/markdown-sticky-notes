@@ -342,6 +342,12 @@ function getRenderedBlockMathRanges(state) {
   return ranges;
 }
 
+// Helper: find if a document position is inside any rendered block math range
+function findBlockMathAt(state, pos) {
+  const ranges = getRenderedBlockMathRanges(state);
+  return ranges.find(r => pos >= r.from && pos <= r.to) || null;
+}
+
 const blockMathNavKeymap = [
   {
     key: 'ArrowDown',
@@ -350,18 +356,18 @@ const blockMathNavKeymap = [
       const line = view.state.doc.lineAt(head);
       if (line.number >= view.state.doc.lines) return false;
       const nextLine = view.state.doc.line(line.number + 1);
-      for (const r of getRenderedBlockMathRanges(view.state)) {
-        // Next line falls inside a rendered block math → jump past it
-        if (nextLine.from >= r.from && nextLine.from <= r.to) {
-          const afterPos = Math.min(r.to + 1, view.state.doc.length);
-          const target = afterPos >= view.state.doc.length
-            ? view.state.doc.length
-            : view.state.doc.lineAt(afterPos).from;
-          view.dispatch({ selection: { anchor: target } });
-          return true;
-        }
-      }
-      return false;
+      const r = findBlockMathAt(view.state, nextLine.from);
+      if (!r) return false;
+      // Jump past the block math
+      const afterPos = Math.min(r.to + 1, view.state.doc.length);
+      const target = afterPos >= view.state.doc.length
+        ? view.state.doc.length
+        : view.state.doc.lineAt(afterPos).from;
+      view.dispatch({
+        selection: { anchor: target },
+        scrollIntoView: true,
+      });
+      return true;
     },
   },
   {
@@ -371,17 +377,19 @@ const blockMathNavKeymap = [
       const line = view.state.doc.lineAt(head);
       if (line.number <= 1) return false;
       const prevLine = view.state.doc.line(line.number - 1);
-      for (const r of getRenderedBlockMathRanges(view.state)) {
-        // Previous line falls inside a rendered block math → jump before it
-        if (prevLine.from >= r.from && prevLine.to <= r.to) {
-          const target = r.from === 0
-            ? 0
-            : view.state.doc.lineAt(r.from - 1).to;
-          view.dispatch({ selection: { anchor: target } });
-          return true;
-        }
-      }
-      return false;
+      const r = findBlockMathAt(view.state, prevLine.from);
+      if (!r) return false;
+      // Jump before the block math
+      const target = r.from === 0
+        ? 0
+        : view.state.doc.lineAt(r.from).from > 0
+          ? view.state.doc.lineAt(r.from - 1).to
+          : 0;
+      view.dispatch({
+        selection: { anchor: target },
+        scrollIntoView: true,
+      });
+      return true;
     },
   },
 ];
@@ -397,7 +405,10 @@ const markdownHighlightStyle = HighlightStyle.define([
   { tag: t.quote, color: '#656d76', fontStyle: 'italic' },
 ]);
 
-// ─── macOS Keymap ──────────────────────────────────────────────────────────
+// ─── Formatting Keymap ─────────────────────────────────────────────────────
+// Navigation keybindings (Cmd+Arrow, Cmd+Shift+Arrow, Opt+Arrow, etc.) are
+// already provided by CodeMirror's defaultKeymap. We only add markdown
+// formatting shortcuts here.
 
 function wrapSelection(view, before, after) {
   const { state, dispatch } = view;
@@ -411,41 +422,7 @@ function wrapSelection(view, before, after) {
   );
 }
 
-const macOSKeymap = [
-  // Navigation
-  {
-    key: 'Mod-ArrowUp',
-    run: (v) => {
-      v.dispatch(v.state.update({ selection: { anchor: 0 } }));
-      return true;
-    },
-  },
-  {
-    key: 'Mod-ArrowDown',
-    run: (v) => {
-      const end = v.state.doc.length;
-      v.dispatch(v.state.update({ selection: { anchor: end } }));
-      return true;
-    },
-  },
-  {
-    key: 'Mod-Shift-ArrowUp',
-    run: (v) => {
-      const head = v.state.selection.main.head;
-      v.dispatch(v.state.update({ selection: { anchor: head, head: 0 } }));
-      return true;
-    },
-  },
-  {
-    key: 'Mod-Shift-ArrowDown',
-    run: (v) => {
-      const head = v.state.selection.main.head;
-      const end = v.state.doc.length;
-      v.dispatch(v.state.update({ selection: { anchor: head, head: end } }));
-      return true;
-    },
-  },
-  // Formatting
+const formattingKeymap = [
   { key: 'Mod-b', run: (v) => { wrapSelection(v, '**', '**'); return true; } },
   { key: 'Mod-i', run: (v) => { wrapSelection(v, '*', '*'); return true; } },
   { key: 'Mod-k', run: (v) => { wrapSelection(v, '[', '](url)'); return true; } },
@@ -578,7 +555,7 @@ function initEditor(initialContent = '') {
     doc: initialContent,
     extensions: [
       history(),
-      keymap.of([...blockMathNavKeymap, ...macOSKeymap, ...defaultKeymap, ...historyKeymap]),
+      keymap.of([...blockMathNavKeymap, ...formattingKeymap, ...defaultKeymap, ...historyKeymap]),
       markdown({ base: markdownLanguage }),
       syntaxHighlighting(markdownHighlightStyle),
       markdownDecoPlugin,
