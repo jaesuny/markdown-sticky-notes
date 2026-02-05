@@ -4,7 +4,8 @@ import { EditorState, StateField } from '@codemirror/state';
 import { EditorView, keymap, Decoration, WidgetType } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { tags as t } from '@lezer/highlight';
 // Don't use language-data - it causes dynamic imports
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
@@ -27,6 +28,35 @@ function log(message) {
   console.log('[Editor]', message);
   sendToBridge('log', { message: message });
 }
+
+// Custom highlight style for markdown with visible formatting
+const markdownHighlightStyle = HighlightStyle.define([
+  // Headings - make them stand out
+  { tag: t.heading1, fontSize: '2em', fontWeight: 'bold', marginTop: '1em', marginBottom: '0.5em' },
+  { tag: t.heading2, fontSize: '1.5em', fontWeight: 'bold', marginTop: '0.8em', marginBottom: '0.4em' },
+  { tag: t.heading3, fontSize: '1.25em', fontWeight: 'bold' },
+  { tag: t.heading4, fontSize: '1.1em', fontWeight: 'bold' },
+  { tag: t.heading5, fontSize: '1em', fontWeight: 'bold' },
+  { tag: t.heading6, fontSize: '0.95em', fontWeight: 'bold' },
+
+  // Strong (bold) - **text**
+  { tag: t.strong, fontWeight: 'bold', color: '#333333' },
+
+  // Emphasis (italic) - *text*
+  { tag: t.emphasis, fontStyle: 'italic', color: '#666666' },
+
+  // Links - [text](url)
+  { tag: t.link, color: '#0969da', textDecoration: 'underline' },
+
+  // Inline code - `code`
+  { tag: t.monospace, fontFamily: 'Monaco, Menlo, "Courier New", monospace', backgroundColor: 'rgba(175, 184, 193, 0.2)', padding: '2px 4px', borderRadius: '3px' },
+
+  // List markers and other punctuation
+  { tag: t.processingInstruction, color: '#666666' },
+
+  // Quotes/blockquotes
+  { tag: t.quote, color: '#999999', fontStyle: 'italic' },
+]);
 
 // Math Widget
 class MathWidget extends WidgetType {
@@ -370,7 +400,7 @@ function initEditor(initialContent = '') {
         base: markdownLanguage,
         // codeLanguages disabled to avoid dynamic imports
       }),
-      syntaxHighlighting(defaultHighlightStyle),
+      syntaxHighlighting(markdownHighlightStyle),  // Use custom markdown highlighting
       mathRenderField,  // StateField for code and math rendering
       editorTheme,
       window.matchMedia('(prefers-color-scheme: dark)').matches ? darkTheme : [],
