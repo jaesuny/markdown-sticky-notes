@@ -1,214 +1,101 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Build & Run
 
-## Quick Start
-
-### Build the Application
 ```bash
-./build-app.sh
+./build-app.sh                # Full build: webpack → Swift → .app bundle
+open build/StickyNotes.app    # Run
 ```
-This script handles the complete build pipeline:
-1. Builds the web editor (CodeMirror bundle via webpack)
-2. Compiles Swift code with `swift build -c release`
-3. Creates the macOS .app bundle structure at `build/StickyNotes.app`
 
-### Run the Application
+Prerequisites: macOS 12+, Swift 5.9+, Node.js 18+. First time: `cd editor-web && npm install`
+
+### Dev Workflow
+
 ```bash
-open build/StickyNotes.app
+# Full rebuild (Swift + JS)
+./build-app.sh && open build/StickyNotes.app
+
+# JS-only fast iteration (requires .app already built)
+cd editor-web && npm run build && cp dist/editor.bundle.js ../build/StickyNotes.app/Contents/Resources/Editor/ && open ../build/StickyNotes.app
 ```
 
-### Development Workflow
-```bash
-# Swift code changes: rebuild and relaunch
-swift build -c release
-open build/StickyNotes.app
+## Architecture
 
-# Editor changes (JavaScript/CSS): rebuild bundle only
-cd editor-web && npm run build
-# Then copy to app
-cp editor-web/dist/editor.bundle.js build/StickyNotes.app/Contents/Resources/Editor/
+Hybrid native + web macOS app:
+- **Swift/SwiftUI**: App shell, NSPanel windows, UserDefaults persistence
+- **WKWebView + CodeMirror 6**: Markdown editor with KaTeX math
+- **Bridge**: `WKScriptMessageHandler` bidirectional messaging
 
-# Watch mode for editor development
-cd editor-web && npm run watch
+### Editor Rendering (editor-web/src/editor.js)
+
+Three-layer system:
+
+1. **ViewPlugin** (`markdownDecoPlugin`) — syntax tree 기반
+   - `syntaxTree(state).iterate()` 로 Lezer 파서 노드 순회
+   - `Decoration.line()` → 헤딩 font-size, 코드블록 배경, 블록쿼트 스타일, HR
+   - `Decoration.mark()` → 볼드, 이탤릭, 링크, 마커 흐리게
+   - `Decoration.replace()` → 인라인 코드 위젯 (커서 unfold 지원)
+
+2. **StateField** (`mathRenderField`) — 수식 전용
+   - 블록 수식 `$$...$$`: 멀티라인 `Decoration.replace({ block: true })` — ViewPlugin에서는 불가
+   - 인라인 수식 `$...$`: regex 매칭 (Lezer는 `$` 미인식)
+   - `collectCodeRanges()` 로 코드블록 내부 `$` 무시
+   - 선택 변경 시에도 재계산 (`tr.selection` 체크)
+
+3. **HighlightStyle** — 보조 토큰 색상 (파싱 완료 전 기본 스타일)
+
+### Cursor Unfold Pattern
+
+`Decoration.replace()` 사용 시 커서가 범위 안에 있으면 위젯 대신 원본 소스 표시:
+```javascript
+const { from: curFrom, to: curTo } = state.selection.main;
+function cursorInside(from, to) { return curFrom >= from && curTo <= to; }
+if (cursorInside(node.from, node.to)) break; // skip replace, show raw
 ```
+적용 대상: InlineCode, 인라인/블록 수식, HR
 
-## Architecture Overview
-
-This is a **hybrid native + web application** for macOS:
-- **Swift/SwiftUI**: App shell, window management, data persistence
-- **WKWebView**: Embedded editor powered by CodeMirror 6
-- **Swift-JavaScript Bridge**: Bidirectional communication via `WKScriptMessageHandler`
-
-### Key Architectural Decisions
-
-**Why Hybrid?**
-- Pure native (NSTextView): Would require months to build WYSIWYG markdown editor
-- Electron: Rejected due to resource requirements
-- Hybrid: Leverages CodeMirror 6 for editing + native macOS performance
-
-**Why StateField over ViewPlugin?**
-- CodeMirror's `ViewPlugin` decorations apply after viewport calculation (can't replace multiline)
-- `StateField` decorations apply before viewport calculation (supports multiline math blocks)
-- This was a critical architectural fix for reliable block math rendering
-
-### Layer Responsibilities
-
-1. **Swift Layer** (`Sources/StickyNotes/`)
-   - `AppCoordinator`: Orchestrates app lifecycle, note management, window coordination
-   - `WindowManager`: Manages NSPanel instances (floating windows)
-   - `PersistenceManager`: UserDefaults-based JSON storage with debouncing
-   - `NoteWebView`: WKWebView wrapper with resource loading and console interception
-
-2. **Editor Layer** (`editor-web/`)
-   - CodeMirror 6 with markdown language support
-   - `StateField`-based decoration system for code/math rendering
-   - Inline code: `` `code` `` → `InlineCodeWidget` with monospace font
-   - Inline math: `$formula$` → `MathWidget` with KaTeX rendering
-   - Block math: `$$formula$$` → Block `MathWidget` (multiline support via StateField)
-   - Built as single webpack bundle (no chunk splitting for WKWebView compatibility)
-
-3. **Communication** (`Bridge/EditorBridge.swift`)
-   - Messages: content changes, save requests, logs, errors
-   - Console.log interceptor injected via `WKUserScript` for JavaScript debugging
-
-### Resource Loading Flow
-
-The app bundle structure is:
-```
-StickyNotes.app/
-  Contents/
-    MacOS/StickyNotes (executable)
-    Resources/
-      Editor/
-        index.html
-        editor.bundle.js (webpack output)
-```
-
-Critical detail: `WKWebView.loadFileURL()` requires explicit read access to Resources directory. This is handled in `NoteWebView.swift` by allowing read access to the full Resources folder (needed for KaTeX fonts).
-
-## Current Implementation Status
-
-**Phase 1 ✅ Complete:**
-- Swift/SwiftUI app structure with AppCoordinator
-- NSPanel window management (floating, draggable, resizable)
-- UserDefaults persistence with debouncing
-- Basic WKWebView editor
-
-**Phase 2 ✅ In Progress:**
-- CodeMirror 6 with markdown support
-- StateField-based rendering (replaces buggy ViewPlugin approach)
-- Math rendering: inline `$...$` and block `$$...$$`
-- Code widget rendering with monospace font
-- HTML resource loading and KaTeX font loading fixed
-
-**Fixed Issues:**
-- ✅ Markdown syntax highlighting now visible with `markdownHighlightStyle` (replaces `defaultHighlightStyle`)
-- ✅ Headings rendered with progressive sizing and weight
-- ✅ Bold, italic, links, code all styled distinctly
-- ✅ Korean text in math expressions filtered to prevent KaTeX warnings
-
-**Known Issues:**
-- Markdown blockquotes styling could be improved
-- Color scheme could be more Obsidian-like (current is basic)
-
-**Next Phases:**
-- Phase 3: macOS keyboard shortcuts (Cmd+Up/Down, Opt+Left/Right, etc.)
-- Phase 4: Multiple simultaneous notes
-- Phase 5: Preferences window, export functionality
-
-## Important Implementation Details
-
-### Webpack Configuration
-- **Entry**: `editor-web/src/editor.js`
-- **Output**: `editor-web/dist/editor.bundle.js` (single file, ~2.1MB)
-- **Key setting**: Inline fonts as base64 (no separate .woff2 files) because WKWebView has strict file access
-- **Chunks**: Disabled (`splitChunks: false`) to avoid chunk loading errors in WKWebView
-
-### Markdown Highlighting System
-CodeMirror applies syntax highlighting through two mechanisms:
-
-1. **Token-based highlighting** (`markdownHighlightStyle`):
-   - Uses `@lezer/highlight` tags to recognize markdown tokens
-   - Applies styles to: headings (H1-H6), strong, emphasis, links, code, quotes
-   - Headings scale from 2em (H1) to 0.95em (H6) with bold weight
-   - Links styled in blue with underline
-   - Code marked with monospace font + gray background
-
-2. **Decoration system** (`buildDecorations()` function):
-   - Handles three rendering scenarios:
-     1. **Inline code**: Extracts content, wraps in `InlineCodeWidget` with inline styles (monospace, background, padding)
-     2. **Block math**: Multiline regex match, extracts formula, wraps in block `MathWidget`
-     3. **Inline math**: Negative lookbehind to avoid matching `$$`, wraps in inline `MathWidget`
-   - All widgets have `eq()` methods for optimization - CodeMirror only re-renders when content changes
-
-**Why both systems?**
-- Markdown tokens (headings, bold, italic) render via token highlighting for broad coverage
-- Custom widgets (math, code) handle complex replacements not expressible as styling
-
-### HTML/JavaScript Bridge
-- Swift sends messages to JavaScript via: `EditorBridge` → `window.webkit.messageHandlers.bridge.postMessage()`
-- JavaScript sends messages to Swift via: `sendToBridge()` helper → captured by `EditorBridge`
-- Console.log is intercepted and sent to Swift for debugging (visible in Xcode console)
-
-## File Organization
+### Key Files
 
 ```
-Sources/StickyNotes/
-  App/                    # Application logic
-    AppCoordinator.swift  # Main coordinator
-    NoteManager.swift     # Note CRUD
-    WindowManager.swift   # NSPanel management
-    PersistenceManager.swift
-  Models/Note.swift       # Data model
-  Views/NoteWindow/
-    NoteWindowController.swift  # NSPanel setup
-    NoteWebView.swift           # WKWebView + resource loading
-  Bridge/EditorBridge.swift     # Swift-JS communication
-  Resources/Editor/
-    index.html            # HTML shell
-    editor.bundle.js      # Built by webpack (not in source)
-
-editor-web/
-  src/
-    editor.js             # Main editor with StateField
-    editor-simple.js      # CSS-only version (fallback)
-  webpack.config.cjs      # Production bundle config
-  package.json            # Dependencies: CodeMirror 6, KaTeX, etc.
+editor-web/src/editor.js          # 에디터 전체 (ViewPlugin + StateField + theme)
+editor-web/webpack.config.cjs     # 단일 번들, 폰트 base64 인라인
+Sources/StickyNotes/Views/NoteWindow/NoteWebView.swift  # WKWebView + 리소스 로딩
+Sources/StickyNotes/Bridge/EditorBridge.swift            # Swift-JS 메시지 핸들러
+Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 ```
 
-## Debugging Tips
+### Swift-JS Bridge
 
-1. **Swift side**: Add `print()` statements - visible in Xcode console or terminal
-2. **JavaScript side**: Use `console.log()` - captured by interceptor and sent to Swift
-3. **Check Swift-JS bridge**: Look at `EditorBridge.swift` to see message routing
-4. **Inspect WKWebView DOM**: Open Safari > Develop > [Your Mac] > StickyNotes > index.html
-5. **Test editor without app**: `cd editor-web && npm run watch` then open `src/editor.html` in browser
+- **JS → Swift**: `sendToBridge(action, data)` → `ready`, `contentChanged`, `requestSave`, `log`, `error`
+- **Swift → JS**: `window.setContent(content)`, `window.getContent()`
+- Console.log 인터셉트: `WKUserScript` at document start → Swift 콘솔로 전달
 
-## Key Dependencies
+## Implementation Status
 
-- **CodeMirror 6**: Advanced editor core
-- **KaTeX**: Fast LaTeX rendering (no network required)
-- **markdown-it**: Markdown parsing (currently not fully integrated)
-- **Webpack 5**: Bundles everything into single file with inline fonts
+- **Phase 1 ✅**: App structure, NSPanel windows, persistence, WKWebView
+- **Phase 2 ✅**: CodeMirror 6, syntax tree decorations, KaTeX math, cursor unfold
+- **Phase 3**: 추가 마크다운 요소 (취소선, 체크박스, 이미지, 테이블)
+- **Phase 4**: Multi-window 개선
+- **Phase 5**: Preferences, export
 
-## Common Pitfalls
+## Gotchas
 
-1. **Resource not found errors**: Always run `./build-app.sh` after editor changes - just updating the bundle file isn't enough
-2. **KaTeX font loading fails**: Make sure `NoteWebView.swift` grants read access to full Resources directory
-3. **Decorations don't apply**: Remember `StateField` is needed for multiline; ViewPlugin will fail with "line break" errors
-4. **Console.log invisible**: Check Xcode console, not browser console - messages are intercepted
-5. **Changes in Xcode don't persist**: Close and reopen the app from `build/StickyNotes.app`, don't run from Xcode (different resource paths)
+1. **`Decoration.line()` CSS**: 클래스가 `.cm-line` 요소에 직접 추가됨 — `&light .cm-heading-1` 같은 스코프 접두사 사용하면 안 됨, `.cm-heading-1`로 직접 사용
+2. **ViewPlugin vs StateField**: 줄바꿈 포함 `Decoration.replace()`는 반드시 StateField. ViewPlugin에서 하면 "line break" 에러
+3. **`atomicRanges` 주의**: 모든 decoration에 적용하면 커서가 여러 블록을 건너뜀 — 블록 수식 네비게이션은 커스텀 키맵(`blockMathNavKeymap`)으로 처리
+4. **regex vs syntax tree**: 인라인 코드 regex는 펜스드 코드블록 내부와 충돌 — `syntaxTree().iterate()`의 노드명(`InlineCode`, `FencedCode` 등) 사용
+5. **HighlightStyle 한계**: `fontSize`는 span 레벨만 적용되어 헤딩 라인 전체에 효과 없음 — `Decoration.line()` + CSS 클래스로 해결
+6. **WKWebView 리소스**: `loadFileURL()`에 Resources 디렉토리 전체 read access 필요 (KaTeX 폰트)
+7. **Webpack 단일 번들**: `splitChunks: false`, 폰트 `asset/inline` — WKWebView는 청크/외부 파일 로딩 불가
+8. **한글 수식 필터**: KaTeX가 한글 미지원 — `/[ㄱ-ㅎㅏ-ㅣ가-힣]/` regex로 건너뛰기
 
-## Testing the Editor
+## Lezer Markdown Node Names
 
-Quick manual test flow:
-```
-1. Type: # Heading → should be styled large
-2. Type: **bold** → should be weighted
-3. Type: `code` → should be monospace with background
-4. Type: $E=mc^2$ → should render as equation
-5. Type: $$\int_0^\infty e^{-x^2} dx$$ → should render as larger equation
-```
+에디터에서 사용하는 syntax tree 노드:
+`ATXHeading1`~`6`, `HeaderMark`, `StrongEmphasis`, `Emphasis`, `EmphasisMark`, `InlineCode`, `CodeMark`, `FencedCode`, `Link`, `LinkMark`, `URL`, `Blockquote`, `QuoteMark`, `HorizontalRule`, `BulletList`, `OrderedList`, `ListItem`, `ListMark`
 
-If any don't work, check the browser inspector (Safari Develop menu) to see if decorations are being created.
+## Debugging
+
+- **Swift**: `print()` → Xcode/terminal 콘솔
+- **JS**: `console.log()` → Swift 콘솔로 전달됨
+- **DOM 검사**: Safari > Develop > [Mac] > StickyNotes > index.html

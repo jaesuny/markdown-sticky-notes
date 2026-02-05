@@ -1,64 +1,39 @@
-// CodeMirror 6 Markdown Editor with Live Preview and Math Support
+// CodeMirror 6 Markdown Editor with Syntax Tree-based Live Preview
+//
+// Architecture:
+//   ViewPlugin (markdownDecoPlugin) — syntax tree 순회, 라인/마크 decoration
+//   StateField (mathRenderField)    — 수식 렌더링 (멀티라인 replace 필요)
+//   HighlightStyle                  — 보조 토큰 색상
+//   EditorView.theme()              — CSS 클래스 정의
 
 import { EditorState, StateField } from '@codemirror/state';
-import { EditorView, keymap, Decoration, WidgetType } from '@codemirror/view';
+import { EditorView, keymap, Decoration, WidgetType, ViewPlugin } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
-// Don't use language-data - it causes dynamic imports
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
-// Bridge helper functions
+// ─── Bridge ────────────────────────────────────────────────────────────────
+
 function sendToBridge(action, data = {}) {
-  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
+  if (window.webkit?.messageHandlers?.bridge) {
     try {
-      window.webkit.messageHandlers.bridge.postMessage({
-        action: action,
-        ...data
-      });
-    } catch (error) {
-      console.error('Bridge error:', error);
+      window.webkit.messageHandlers.bridge.postMessage({ action, ...data });
+    } catch (e) {
+      console.error('Bridge error:', e);
     }
   }
 }
 
 function log(message) {
   console.log('[Editor]', message);
-  sendToBridge('log', { message: message });
+  sendToBridge('log', { message });
 }
 
-// Custom highlight style for markdown with visible formatting
-const markdownHighlightStyle = HighlightStyle.define([
-  // Headings - make them stand out
-  { tag: t.heading1, fontSize: '2em', fontWeight: 'bold', marginTop: '1em', marginBottom: '0.5em' },
-  { tag: t.heading2, fontSize: '1.5em', fontWeight: 'bold', marginTop: '0.8em', marginBottom: '0.4em' },
-  { tag: t.heading3, fontSize: '1.25em', fontWeight: 'bold' },
-  { tag: t.heading4, fontSize: '1.1em', fontWeight: 'bold' },
-  { tag: t.heading5, fontSize: '1em', fontWeight: 'bold' },
-  { tag: t.heading6, fontSize: '0.95em', fontWeight: 'bold' },
+// ─── Widgets ───────────────────────────────────────────────────────────────
 
-  // Strong (bold) - **text**
-  { tag: t.strong, fontWeight: 'bold', color: '#333333' },
-
-  // Emphasis (italic) - *text*
-  { tag: t.emphasis, fontStyle: 'italic', color: '#666666' },
-
-  // Links - [text](url)
-  { tag: t.link, color: '#0969da', textDecoration: 'underline' },
-
-  // Inline code - `code`
-  { tag: t.monospace, fontFamily: 'Monaco, Menlo, "Courier New", monospace', backgroundColor: 'rgba(175, 184, 193, 0.2)', padding: '2px 4px', borderRadius: '3px' },
-
-  // List markers and other punctuation
-  { tag: t.processingInstruction, color: '#666666' },
-
-  // Quotes/blockquotes
-  { tag: t.quote, color: '#999999', fontStyle: 'italic' },
-]);
-
-// Math Widget
 class MathWidget extends WidgetType {
   constructor(formula, isBlock) {
     super();
@@ -73,187 +48,413 @@ class MathWidget extends WidgetType {
   toDOM() {
     const wrap = document.createElement(this.isBlock ? 'div' : 'span');
     wrap.className = this.isBlock ? 'cm-math-block' : 'cm-math-inline';
-
     try {
       katex.render(this.formula, wrap, {
         throwOnError: false,
-        displayMode: this.isBlock
+        displayMode: this.isBlock,
       });
     } catch (e) {
-      console.error(`[KaTeX] Error rendering "${this.formula}":`, e.message);
       wrap.textContent = this.formula;
       wrap.className += ' cm-math-error';
     }
-
     return wrap;
   }
 
-  ignoreEvent() {
-    return false;
-  }
+  ignoreEvent() { return false; }
 }
 
-// Inline code widget
 class InlineCodeWidget extends WidgetType {
   constructor(code) {
     super();
     this.code = code;
   }
 
-  eq(other) {
-    return other.code === this.code;
-  }
+  eq(other) { return other.code === this.code; }
 
   toDOM() {
-    const span = document.createElement('span');
-    span.className = 'cm-code-widget';
+    const span = document.createElement('code');
+    span.className = 'cm-inline-code-widget';
     span.textContent = this.code;
-    span.style.fontFamily = 'Monaco, Menlo, "Courier New", Courier, monospace';
-    span.style.backgroundColor = 'rgba(175, 184, 193, 0.2)';
-    span.style.padding = '2px 4px';
-    span.style.borderRadius = '3px';
-    span.style.fontSize = '0.9em';
     return span;
   }
 
-  ignoreEvent() {
-    return false;
-  }
+  ignoreEvent() { return false; }
 }
 
-// Headings are rendered via CSS, not widgets
+// ─── ViewPlugin: Syntax-tree markdown decorations ──────────────────────────
 
-// Build decorations for code and math rendering
-function buildDecorations(state) {
+function buildMarkdownDecos(view) {
+  const builder = [];
+  const lineDecoSet = new Set();
+  // Cursor position — skip Decoration.replace() when cursor is inside the range
+  const { from: curFrom, to: curTo } = view.state.selection.main;
+
+  function cursorInside(from, to) {
+    return curFrom >= from && curTo <= to;
+  }
+
+  function addLineDeco(pos, cls) {
+    const lineStart = view.state.doc.lineAt(pos).from;
+    const key = `${lineStart}:${cls}`;
+    if (lineDecoSet.has(key)) return;
+    lineDecoSet.add(key);
+    builder.push(Decoration.line({ class: cls }).range(lineStart));
+  }
+
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from,
+      to,
+      enter(node) {
+        switch (node.name) {
+          // ── Headings ──────────────────────────────────────
+          case 'ATXHeading1':
+            addLineDeco(node.from, 'cm-heading-1');
+            break;
+          case 'ATXHeading2':
+            addLineDeco(node.from, 'cm-heading-2');
+            break;
+          case 'ATXHeading3':
+            addLineDeco(node.from, 'cm-heading-3');
+            break;
+          case 'ATXHeading4':
+            addLineDeco(node.from, 'cm-heading-4');
+            break;
+          case 'ATXHeading5':
+            addLineDeco(node.from, 'cm-heading-5');
+            break;
+          case 'ATXHeading6':
+            addLineDeco(node.from, 'cm-heading-6');
+            break;
+
+          // ── Markers (dim) ─────────────────────────────────
+          case 'HeaderMark':
+          case 'EmphasisMark':
+          case 'QuoteMark':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-marker' }).range(node.from, node.to)
+            );
+            break;
+
+          // ── Bold ──────────────────────────────────────────
+          case 'StrongEmphasis':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-bold' }).range(node.from, node.to)
+            );
+            break;
+
+          // ── Italic ────────────────────────────────────────
+          case 'Emphasis':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-italic' }).range(node.from, node.to)
+            );
+            break;
+
+          // ── Inline Code → widget (unfold when cursor inside) ─
+          case 'InlineCode': {
+            if (cursorInside(node.from, node.to)) break; // show raw source
+            const text = view.state.sliceDoc(node.from, node.to);
+            const backtickMatch = text.match(/^(`+)([\s\S]*?)\1$/);
+            if (backtickMatch) {
+              const inner = backtickMatch[2].trim();
+              builder.push(
+                Decoration.replace({
+                  widget: new InlineCodeWidget(inner),
+                }).range(node.from, node.to)
+              );
+            }
+            break;
+          }
+
+          // ── Link ──────────────────────────────────────────
+          case 'Link': {
+            // Style the whole link node, then let LinkMark/URL children
+            // be styled separately (markers dim, URL dim)
+            builder.push(
+              Decoration.mark({ class: 'cm-md-link' }).range(node.from, node.to)
+            );
+            break;
+          }
+
+          // ── Link sub-parts: dim brackets and URL ──────────
+          case 'LinkMark':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-marker' }).range(node.from, node.to)
+            );
+            break;
+          case 'URL':
+            builder.push(
+              Decoration.mark({ class: 'cm-md-url' }).range(node.from, node.to)
+            );
+            break;
+
+          // ── Blockquote (line decoration per line) ─────────
+          case 'Blockquote': {
+            const startLine = view.state.doc.lineAt(node.from).number;
+            const endLine = view.state.doc.lineAt(node.to).number;
+            for (let i = startLine; i <= endLine; i++) {
+              addLineDeco(view.state.doc.line(i).from, 'cm-md-blockquote');
+            }
+            break;
+          }
+
+          // ── Fenced Code Block (line decoration per line) ──
+          case 'FencedCode': {
+            const startLine = view.state.doc.lineAt(node.from).number;
+            const endLine = view.state.doc.lineAt(node.to).number;
+            for (let i = startLine; i <= endLine; i++) {
+              addLineDeco(view.state.doc.line(i).from, 'cm-md-fenced-code');
+            }
+            break;
+          }
+
+          // ── Horizontal Rule (unfold when cursor on line) ───
+          case 'HorizontalRule':
+            if (!cursorInside(node.from, node.to)) {
+              addLineDeco(node.from, 'cm-md-hr');
+            }
+            break;
+        }
+      },
+    });
+  }
+
+  // Sort by position (required by Decoration.set)
+  return Decoration.set(builder, true);
+}
+
+const markdownDecoPlugin = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = buildMarkdownDecos(view);
+    }
+    update(update) {
+      if (update.docChanged || update.viewportChanged || update.selectionSet) {
+        this.decorations = buildMarkdownDecos(update.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations }
+);
+
+// ─── StateField: Math rendering ────────────────────────────────────────────
+//
+// Uses StateField (not ViewPlugin) because block math $$...$$ can span
+// multiple lines, and only StateField can do multiline Decoration.replace().
+// Also uses the syntax tree to avoid matching $ inside code blocks.
+
+const KOREAN_RE = /[ㄱ-ㅎㅏ-ㅣ가-힣]/;
+
+function collectCodeRanges(state) {
+  const ranges = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name === 'FencedCode' || node.name === 'InlineCode') {
+        ranges.push({ from: node.from, to: node.to });
+      }
+    },
+  });
+  return ranges;
+}
+
+function isInsideCode(pos, ranges) {
+  return ranges.some((r) => pos >= r.from && pos < r.to);
+}
+
+function buildMathDecorations(state) {
   const widgets = [];
-  const doc = state.doc;
-  const text = doc.toString();
-
-  // 1. Inline code: `code`
-  const inlineCodeRegex = /`([^`\n]*)`/g;
+  const text = state.doc.toString();
+  const codeRanges = collectCodeRanges(state);
+  const { from: curFrom, to: curTo } = state.selection.main;
   let match;
-  while ((match = inlineCodeRegex.exec(text)) !== null) {
+
+  function cursorInside(from, to) {
+    return curFrom >= from && curTo <= to;
+  }
+
+  // 1. Block math: $$...$$  (multiline ok)
+  const blockRe = /\$\$[\s\S]*?\$\$/g;
+  while ((match = blockRe.exec(text)) !== null) {
+    if (isInsideCode(match.index, codeRanges)) continue;
+    const mFrom = match.index, mTo = mFrom + match[0].length;
+    if (cursorInside(mFrom, mTo)) continue; // show raw source
+    const formula = match[0].slice(2, -2).trim();
+    if (!formula || KOREAN_RE.test(formula)) continue;
     widgets.push(
       Decoration.replace({
-        widget: new InlineCodeWidget(match[1])
-      }).range(match.index, match.index + match[0].length)
+        widget: new MathWidget(formula, true),
+        block: true,
+      }).range(mFrom, mTo)
     );
   }
 
-  // 2. Block math (multiline): $$\n...\n$$
-  // 한글이 포함된 경우 건너뛰기 (KaTeX는 한글 지원 안 함)
-  const blockMathRegex = /\$\$[\s\S]*?\$\$/g;
-  while ((match = blockMathRegex.exec(text)) !== null) {
-    const formula = match[0].replace(/^\$\$\s*/, '').replace(/\s*\$\$$/, '').trim();
-    // 한글 체크: 한글이 있으면 렌더링하지 않음
-    if (formula.length > 0 && !/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(formula)) {
-      widgets.push(
-        Decoration.replace({
-          widget: new MathWidget(formula, true),
-          block: true
-        }).range(match.index, match.index + match[0].length)
-      );
-    }
-  }
-
-  // 3. Inline math: $x^2$
-  const inlineMathRegex = /(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g;
-  // Reset regex
-  inlineMathRegex.lastIndex = 0;
-  while ((match = inlineMathRegex.exec(text)) !== null) {
+  // 2. Inline math: $...$  (single line, not $$)
+  const inlineRe = /(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g;
+  while ((match = inlineRe.exec(text)) !== null) {
+    if (isInsideCode(match.index, codeRanges)) continue;
+    const mFrom = match.index, mTo = mFrom + match[0].length;
+    if (cursorInside(mFrom, mTo)) continue; // show raw source
     const formula = match[1].trim();
-    // 한글이 있거나 빈 문자열이면 건너뛰기
-    if (formula.length === 0 || /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(formula)) continue;
-
+    if (!formula || KOREAN_RE.test(formula)) continue;
     widgets.push(
       Decoration.replace({
-        widget: new MathWidget(formula, false)
-      }).range(match.index, match.index + match[0].length)
+        widget: new MathWidget(formula, false),
+      }).range(mFrom, mTo)
     );
   }
 
   return Decoration.set(widgets, true);
 }
 
-// StateField for math and code rendering
 const mathRenderField = StateField.define({
   create(state) {
-    return buildDecorations(state);
+    return buildMathDecorations(state);
   },
-
-  update(decorations, tr) {
-    if (!tr.docChanged) {
-      return decorations.map(tr.changes);
+  update(decos, tr) {
+    // Rebuild on doc change OR selection change (cursor-aware unfold)
+    if (tr.docChanged || tr.selection) {
+      return buildMathDecorations(tr.state);
     }
-    return buildDecorations(tr.state);
+    return decos;
   },
-
   provide(field) {
     return EditorView.decorations.from(field);
-  }
+  },
 });
 
-// macOS keyboard shortcuts
-const macOSKeymap = [
-  { key: 'Mod-ArrowUp', run: view => {
-    const { state, dispatch } = view;
-    dispatch(state.update({ selection: { anchor: 0, head: 0 } }));
-    return true;
-  }},
-  { key: 'Mod-ArrowDown', run: view => {
-    const { state, dispatch } = view;
-    const end = state.doc.length;
-    dispatch(state.update({ selection: { anchor: end, head: end } }));
-    return true;
-  }},
-  { key: 'Mod-Shift-ArrowUp', run: view => {
-    const { state, dispatch } = view;
-    const { head } = state.selection.main;
-    dispatch(state.update({ selection: { anchor: head, head: 0 } }));
-    return true;
-  }},
-  { key: 'Mod-Shift-ArrowDown', run: view => {
-    const { state, dispatch } = view;
-    const { head } = state.selection.main;
-    const end = state.doc.length;
-    dispatch(state.update({ selection: { anchor: head, head: end } }));
-    return true;
-  }},
-  { key: 'Mod-b', run: view => {
-    wrapSelection(view, '**', '**');
-    return true;
-  }},
-  { key: 'Mod-i', run: view => {
-    wrapSelection(view, '*', '*');
-    return true;
-  }},
-  { key: 'Mod-k', run: view => {
-    wrapSelection(view, '[', '](url)');
-    return true;
-  }},
-  { key: 'Mod-e', run: view => {
-    wrapSelection(view, '`', '`');
-    return true;
-  }},
-  { key: 'Mod-s', run: view => {
-    sendToBridge('requestSave');
-    return true;
-  }},
+// ─── Block math navigation ─────────────────────────────────────────────────
+// When a block math widget is rendered (cursor outside), arrow keys should
+// jump over it instead of getting stuck.
+
+function getRenderedBlockMathRanges(state) {
+  const ranges = [];
+  const text = state.doc.toString();
+  const { from: curFrom, to: curTo } = state.selection.main;
+  const blockRe = /\$\$[\s\S]*?\$\$/g;
+  let match;
+  while ((match = blockRe.exec(text)) !== null) {
+    const mFrom = match.index, mTo = mFrom + match[0].length;
+    // Only include ranges that are actually rendered (cursor NOT inside)
+    if (!(curFrom >= mFrom && curTo <= mTo)) {
+      ranges.push({ from: mFrom, to: mTo });
+    }
+  }
+  return ranges;
+}
+
+const blockMathNavKeymap = [
+  {
+    key: 'ArrowDown',
+    run: (view) => {
+      const { head } = view.state.selection.main;
+      const line = view.state.doc.lineAt(head);
+      if (line.number >= view.state.doc.lines) return false;
+      const nextLine = view.state.doc.line(line.number + 1);
+      for (const r of getRenderedBlockMathRanges(view.state)) {
+        // Next line falls inside a rendered block math → jump past it
+        if (nextLine.from >= r.from && nextLine.from <= r.to) {
+          const afterPos = Math.min(r.to + 1, view.state.doc.length);
+          const target = afterPos >= view.state.doc.length
+            ? view.state.doc.length
+            : view.state.doc.lineAt(afterPos).from;
+          view.dispatch({ selection: { anchor: target } });
+          return true;
+        }
+      }
+      return false;
+    },
+  },
+  {
+    key: 'ArrowUp',
+    run: (view) => {
+      const { head } = view.state.selection.main;
+      const line = view.state.doc.lineAt(head);
+      if (line.number <= 1) return false;
+      const prevLine = view.state.doc.line(line.number - 1);
+      for (const r of getRenderedBlockMathRanges(view.state)) {
+        // Previous line falls inside a rendered block math → jump before it
+        if (prevLine.from >= r.from && prevLine.to <= r.to) {
+          const target = r.from === 0
+            ? 0
+            : view.state.doc.lineAt(r.from - 1).to;
+          view.dispatch({ selection: { anchor: target } });
+          return true;
+        }
+      }
+      return false;
+    },
+  },
 ];
+
+// ─── HighlightStyle (fallback token colours) ───────────────────────────────
+
+const markdownHighlightStyle = HighlightStyle.define([
+  { tag: t.heading, fontWeight: 'bold' },
+  { tag: t.strong, fontWeight: 'bold' },
+  { tag: t.emphasis, fontStyle: 'italic' },
+  { tag: t.link, color: '#0969da' },
+  { tag: t.monospace, fontFamily: 'Monaco, Menlo, monospace' },
+  { tag: t.quote, color: '#656d76', fontStyle: 'italic' },
+]);
+
+// ─── macOS Keymap ──────────────────────────────────────────────────────────
 
 function wrapSelection(view, before, after) {
   const { state, dispatch } = view;
   const { from, to } = state.selection.main;
-  const selectedText = state.doc.sliceString(from, to);
-  const replacement = before + selectedText + after;
-
-  dispatch(state.update({
-    changes: { from, to, insert: replacement },
-    selection: { anchor: from + before.length, head: to + before.length }
-  }));
+  const sel = state.doc.sliceString(from, to);
+  dispatch(
+    state.update({
+      changes: { from, to, insert: before + sel + after },
+      selection: { anchor: from + before.length, head: to + before.length },
+    })
+  );
 }
 
-// Editor theme with very visible heading styles
+const macOSKeymap = [
+  // Navigation
+  {
+    key: 'Mod-ArrowUp',
+    run: (v) => {
+      v.dispatch(v.state.update({ selection: { anchor: 0 } }));
+      return true;
+    },
+  },
+  {
+    key: 'Mod-ArrowDown',
+    run: (v) => {
+      const end = v.state.doc.length;
+      v.dispatch(v.state.update({ selection: { anchor: end } }));
+      return true;
+    },
+  },
+  {
+    key: 'Mod-Shift-ArrowUp',
+    run: (v) => {
+      const head = v.state.selection.main.head;
+      v.dispatch(v.state.update({ selection: { anchor: head, head: 0 } }));
+      return true;
+    },
+  },
+  {
+    key: 'Mod-Shift-ArrowDown',
+    run: (v) => {
+      const head = v.state.selection.main.head;
+      const end = v.state.doc.length;
+      v.dispatch(v.state.update({ selection: { anchor: head, head: end } }));
+      return true;
+    },
+  },
+  // Formatting
+  { key: 'Mod-b', run: (v) => { wrapSelection(v, '**', '**'); return true; } },
+  { key: 'Mod-i', run: (v) => { wrapSelection(v, '*', '*'); return true; } },
+  { key: 'Mod-k', run: (v) => { wrapSelection(v, '[', '](url)'); return true; } },
+  { key: 'Mod-e', run: (v) => { wrapSelection(v, '`', '`'); return true; } },
+  { key: 'Mod-s', run: () => { sendToBridge('requestSave'); return true; } },
+];
+
+// ─── Theme (CSS) ───────────────────────────────────────────────────────────
+
 const editorTheme = EditorView.theme({
   '&': {
     fontSize: '14px',
@@ -261,42 +462,88 @@ const editorTheme = EditorView.theme({
     backgroundColor: 'transparent',
   },
   '.cm-content': {
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
     padding: '16px',
     minHeight: '100%',
     caretColor: '#5c6ac4',
   },
-  // Force monospace for all code-related elements
-  '.cm-content .cm-line:has(code), .cm-content code': {
-    fontFamily: 'Monaco, Menlo, "Courier New", Courier, monospace !important',
-  },
   '.cm-line': {
-    lineHeight: '1.8',
-    padding: '2px 0',
+    lineHeight: '1.7',
+    padding: '1px 0',
   },
-  '.cm-scroller': {
-    overflow: 'auto',
-  },
-  '&.cm-focused': {
-    outline: 'none',
-  },
-  '.cm-cursor': {
-    borderLeftColor: '#5c6ac4',
+  '.cm-scroller': { overflow: 'auto' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-cursor': { borderLeftColor: '#5c6ac4' },
+
+  // ── Headings (line decorations → class on .cm-line) ──
+  // Decoration.line() adds class to the .cm-line element
+  '.cm-heading-1': { fontSize: '1.8em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0' },
+  '.cm-heading-2': { fontSize: '1.5em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0' },
+  '.cm-heading-3': { fontSize: '1.25em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0' },
+  '.cm-heading-4': { fontSize: '1.1em', lineHeight: '1.3', fontWeight: '700', padding: '3px 0' },
+  '.cm-heading-5': { fontSize: '1.05em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0' },
+  '.cm-heading-6': { fontSize: '1em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0' },
+
+  // ── Markers (dim) ─────────────────────────────────────
+  '.cm-md-marker': { opacity: '0.3' },
+
+  // ── Bold / Italic ─────────────────────────────────────
+  '.cm-md-bold': { fontWeight: '700' },
+  '.cm-md-italic': { fontStyle: 'italic' },
+
+  // ── Link ──────────────────────────────────────────────
+  '.cm-md-link': { color: '#0969da', textDecoration: 'underline' },
+
+  // ── Inline Code Widget ────────────────────────────────
+  '.cm-inline-code-widget': {
+    fontFamily: 'Monaco, Menlo, "Courier New", monospace',
+    fontSize: '0.9em',
+    backgroundColor: 'rgba(175, 184, 193, 0.2)',
+    padding: '2px 5px',
+    borderRadius: '3px',
   },
 
-  // Math styling
+  // ── Fenced Code Block (line decoration) ───────────────
+  '.cm-md-fenced-code': {
+    backgroundColor: 'rgba(175, 184, 193, 0.1)',
+    fontFamily: 'Monaco, Menlo, "Courier New", monospace',
+    fontSize: '0.9em',
+  },
+
+  // ── Blockquote (line decoration) ──────────────────────
+  '.cm-md-blockquote': {
+    borderLeft: '3px solid #d0d7de',
+    paddingLeft: '12px',
+    color: '#656d76',
+  },
+
+  // ── Horizontal Rule ───────────────────────────────────
+  '.cm-md-hr': {
+    borderBottom: '2px solid #d0d7de',
+    color: 'transparent',
+    height: '0',
+    overflow: 'hidden',
+    margin: '8px 0',
+  },
+
+  // ── URL (dim) ─────────────────────────────────────────
+  '.cm-md-url': {
+    opacity: '0.4',
+    fontSize: '0.85em',
+  },
+
+  // ── Math ──────────────────────────────────────────────
   '.cm-math-inline': {
-    backgroundColor: 'rgba(92, 106, 196, 0.1)',
+    backgroundColor: 'rgba(92, 106, 196, 0.08)',
     padding: '2px 6px',
     borderRadius: '4px',
-    margin: '0 2px',
     display: 'inline-block',
   },
   '.cm-math-block': {
     backgroundColor: 'rgba(92, 106, 196, 0.05)',
     padding: '16px',
     borderRadius: '8px',
-    margin: '12px 0',
+    margin: '8px 0',
     display: 'block',
     overflow: 'auto',
   },
@@ -304,198 +551,88 @@ const editorTheme = EditorView.theme({
     color: '#d73a49',
     backgroundColor: 'rgba(215, 58, 73, 0.1)',
   },
-
-  // Heading styles - Obsidian-like
-  // CodeMirror adds .cm-heading-N classes automatically
-  '.cm-line:has(.cm-headerMark)': {
-    fontWeight: '700',
-    lineHeight: '1.4',
-  },
-  '.cm-line:has(.cm-atx-1)': {
-    fontSize: '2em',
-    fontWeight: '700',
-    marginTop: '16px',
-    marginBottom: '8px',
-  },
-  '.cm-line:has(.cm-atx-2)': {
-    fontSize: '1.5em',
-    fontWeight: '700',
-    marginTop: '14px',
-    marginBottom: '6px',
-  },
-  '.cm-line:has(.cm-atx-3)': {
-    fontSize: '1.25em',
-    fontWeight: '700',
-    marginTop: '12px',
-    marginBottom: '4px',
-  },
-  '.cm-line:has(.cm-atx-4)': {
-    fontSize: '1.1em',
-    fontWeight: '700',
-  },
-  '.cm-line:has(.cm-atx-5)': {
-    fontSize: '1em',
-    fontWeight: '700',
-  },
-  '.cm-line:has(.cm-atx-6)': {
-    fontSize: '0.95em',
-    fontWeight: '700',
-  },
-  // Hide the ### markers
-  '.cm-headerMark': {
-    opacity: 0.3,
-  },
-
-  // Markdown syntax highlighting
-  '.cm-strong': {
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  '.cm-emphasis': {
-    fontStyle: 'italic',
-  },
-  '.cm-link': {
-    color: '#5c6ac4',
-    textDecoration: 'underline',
-  },
 }, { dark: false });
 
-// Dark theme
 const darkTheme = EditorView.theme({
-  '.cm-content': {
-    color: '#e0e0e0',
-    caretColor: '#8c9eff',
-  },
-  '.cm-cursor': {
-    borderLeftColor: '#8c9eff',
-  },
-  '.cm-heading': {
-    color: '#e0e0e0',
-  },
-  '.cm-heading-1, .cm-heading-2': {
-    borderBottomColor: '#404040',
-  },
-  '.cm-strong': {
-    color: '#e0e0e0',
-  },
+  '.cm-content': { color: '#e0e0e0', caretColor: '#8c9eff' },
+  '.cm-cursor': { borderLeftColor: '#8c9eff' },
+  '.cm-md-bold': { color: '#e0e0e0' },
+  '.cm-md-marker': { opacity: '0.25' },
+  '.cm-md-link': { color: '#8c9eff' },
+  '.cm-md-blockquote': { borderLeftColor: '#555', color: '#aaa' },
+  '.cm-md-fenced-code': { backgroundColor: 'rgba(255,255,255,0.05)' },
+  '.cm-inline-code-widget': { backgroundColor: 'rgba(255,255,255,0.1)' },
+  '.cm-math-inline': { backgroundColor: 'rgba(140,158,255,0.1)' },
+  '.cm-math-block': { backgroundColor: 'rgba(140,158,255,0.07)' },
 }, { dark: true });
 
-// Initialize editor
+// ─── Editor initialization ─────────────────────────────────────────────────
+
 let editorView;
 let debounceTimer;
 
 function initEditor(initialContent = '') {
-  log('Creating editor state...');
+  log('Initializing editor...');
 
-  const startState = EditorState.create({
+  const state = EditorState.create({
     doc: initialContent,
     extensions: [
       history(),
-      keymap.of([
-        ...macOSKeymap,
-        ...defaultKeymap,
-        ...historyKeymap,
-      ]),
-      markdown({
-        base: markdownLanguage,
-        // codeLanguages disabled to avoid dynamic imports
-      }),
-      syntaxHighlighting(markdownHighlightStyle),  // Use custom markdown highlighting
-      mathRenderField,  // StateField for code and math rendering
+      keymap.of([...blockMathNavKeymap, ...macOSKeymap, ...defaultKeymap, ...historyKeymap]),
+      markdown({ base: markdownLanguage }),
+      syntaxHighlighting(markdownHighlightStyle),
+      markdownDecoPlugin,
+      mathRenderField,
       editorTheme,
       window.matchMedia('(prefers-color-scheme: dark)').matches ? darkTheme : [],
-      EditorView.updateListener.of(update => {
+      EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           clearTimeout(debounceTimer);
           debounceTimer = setTimeout(() => {
-            const content = update.state.doc.toString();
-            sendToBridge('contentChanged', { content });
+            sendToBridge('contentChanged', {
+              content: update.state.doc.toString(),
+            });
           }, 300);
         }
       }),
       EditorView.lineWrapping,
-    ]
+    ],
   });
-
-  log('Creating editor view...');
 
   editorView = new EditorView({
-    state: startState,
-    parent: document.getElementById('editor-container')
+    state,
+    parent: document.getElementById('editor-container'),
   });
 
-  log('Editor created successfully!');
-  console.log('Editor object:', editorView);
+  log('Editor ready');
 }
 
-// Expose to Swift
-window.setContent = function(content) {
-  if (editorView) {
-    const transaction = editorView.state.update({
-      changes: { from: 0, to: editorView.state.doc.length, insert: content }
-    });
-    editorView.dispatch(transaction);
-    log('Content set: ' + content.length + ' characters');
-  }
+// ─── Swift bridge interface ────────────────────────────────────────────────
+
+window.setContent = function (content) {
+  if (!editorView) return;
+  editorView.dispatch(
+    editorView.state.update({
+      changes: { from: 0, to: editorView.state.doc.length, insert: content },
+    })
+  );
 };
 
-window.getContent = function() {
+window.getContent = function () {
   return editorView ? editorView.state.doc.toString() : '';
 };
 
-// Debug function
-window.testHeading = function() {
-  console.log('=== TEST HEADING ===');
-  const testContent = '# Test Heading\n\nSome text here.';
-  window.setContent(testContent);
-  console.log('Content set to:', testContent);
-  console.log('Editor state:', editorView.state.doc.toString());
-};
+// ─── Bootstrap ─────────────────────────────────────────────────────────────
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-  log('DOM ready, initializing editor...');
+  log('DOM ready');
   initEditor();
   sendToBridge('ready');
-
-  setTimeout(() => {
-    editorView.focus();
-    log('Editor focused');
-
-    // Debug: Type backtick code backtick and log classes
-    setTimeout(() => {
-      window.debugCodeClasses = () => {
-        console.log('=== DEBUGGING DECORATION ===');
-
-        const lines = document.querySelectorAll('.cm-line');
-        lines.forEach(line => {
-          if (line.textContent.includes('`')) {
-            console.log('--- Line with backtick ---');
-            console.log('Text:', line.textContent);
-            console.log('HTML:', line.innerHTML);
-
-            // Check for cm-inline-code class
-            const codeSpans = line.querySelectorAll('.cm-inline-code');
-            console.log('.cm-inline-code elements found:', codeSpans.length);
-            codeSpans.forEach((span, i) => {
-              console.log(`  [${i}]:`, {
-                tag: span.tagName,
-                text: span.textContent,
-                innerHTML: span.innerHTML.substring(0, 50),
-                font: window.getComputedStyle(span).fontFamily
-              });
-            });
-          }
-        });
-      };
-      log('Type `code` and call window.debugCodeClasses() to see classes');
-    }, 1000);
-  }, 100);
+  setTimeout(() => editorView?.focus(), 100);
 });
 
 window.addEventListener('error', (e) => {
-  console.error('ERROR:', e);
   sendToBridge('error', { message: 'Error: ' + e.message });
 });
 
-log('Editor script loaded - ready for markdown rendering!');
+log('Editor script loaded');
