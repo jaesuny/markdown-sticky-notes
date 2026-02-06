@@ -296,6 +296,9 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
             panel.collectionBehavior = [.managed]
             panel.isFloatingPanel = false
         }
+
+        // Update titlebar pin button appearance
+        pinButton?.alphaValue = alwaysOnTop ? 1.0 : 0.25
     }
 
     /// Get note ID

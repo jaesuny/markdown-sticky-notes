@@ -44,7 +44,7 @@ struct Note: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         content: String = "",
         position: CGPoint = CGPoint(x: 100, y: 100),
-        size: CGSize = CGSize(width: 400, height: 500),
+        size: CGSize = CGSize(width: 300, height: 360),
         isMinimized: Bool = false,
         opacity: Double = 0.95,
         colorTheme: String = "yellow",
@@ -91,7 +91,7 @@ extension Note {
 
         // Decode CGSize
         let sizeDict = try container.decode([String: Double].self, forKey: .size)
-        size = CGSize(width: sizeDict["width"] ?? 400, height: sizeDict["height"] ?? 500)
+        size = CGSize(width: sizeDict["width"] ?? 300, height: sizeDict["height"] ?? 360)
 
         isMinimized = try container.decode(Bool.self, forKey: .isMinimized)
         opacity = try container.decode(Double.self, forKey: .opacity)

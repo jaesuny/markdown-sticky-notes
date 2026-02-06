@@ -206,7 +206,7 @@ class AppCoordinator: ObservableObject {
 
     /// Calculate position for a new note: mouse cursor's screen, cascade from center
     private func calculateNewNotePosition() -> CGPoint {
-        let noteSize = CGSize(width: 400, height: 500)
+        let noteSize = CGSize(width: 300, height: 360)
 
         // Multi-monitor: find the screen containing the mouse cursor
         let mouseLocation = NSEvent.mouseLocation

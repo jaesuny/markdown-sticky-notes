@@ -122,6 +122,16 @@ struct MenuBarCommands: Scene {
                     Button("50%") { setOpacity(0.5) }
                     Button("25%") { setOpacity(0.25) }
                 }
+
+                Divider()
+
+                Button("Pin on Top") {
+                    if let noteId = coordinator.focusedNoteId(),
+                       let note = coordinator.noteManager.getNote(noteId) {
+                        coordinator.setNoteAlwaysOnTop(noteId: noteId, alwaysOnTop: !note.alwaysOnTop)
+                    }
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
     }
