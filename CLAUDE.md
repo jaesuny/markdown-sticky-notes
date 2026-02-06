@@ -75,8 +75,8 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 - **Phase 1 ✅**: App structure, NSPanel windows, persistence, WKWebView
 - **Phase 2 ✅**: CodeMirror 6, syntax tree decorations, KaTeX math, cursor unfold
 - **Phase 3 ✅**: 추가 마크다운 요소 (취소선, 리스트 스타일, 체크박스 위젯, 테이블)
-- **Phase 4 (진행중)**: Titlebar 컨트롤 (핀/투명도/색깔), Always-on-top, Cmd+F 검색
-- **Phase 5**: Preferences, export
+- **Phase 4 ✅**: Titlebar 컨트롤 (핀/투명도/색깔), Always-on-top, Cmd+F/Cmd+Shift+F 검색
+- **Phase 5 (진행중)**: 디자인 개선, 버그 수정, Known Issues 해결
 
 ## Gotchas
 
@@ -97,6 +97,8 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 15. **타이틀바 커스텀 버튼**: `NSTitlebarAccessoryViewController` + `.layoutAttribute = .right`로 타이틀바 우측에 버튼 추가. `titlebarAppearsTransparent = true`와 함께 사용 시 윈도우 배경색 위에 자연스럽게 표시
 16. **WKWebView 커서 제어**: AppKit의 `resetCursorRects`, `cursorUpdate`는 WKWebView가 내부적으로 무시함 — HTML `<div>`에 `cursor: default` + `pointer-events: auto`로 시도. 단, overlay가 콘텐츠 영역 덮으면 클릭 좌표 어긋남
 17. **NSPanel 최소 크기**: traffic lights (~70px) + `NSTitlebarAccessoryViewController` 너비 합산 + 여유분. 예: 슬라이더(50) + 핀(18) + 색깔점(12×6) = 약 190px → 최소 너비 280px
+18. **검색 패널 버튼/체크박스 타겟팅**: `button[name="select"]` (All), `button[name="replace"]`, `input[name="re"]` (regexp), `input[name="word"]`, `input[name="case"]`. CSS `:has()` 셀렉터로 부모 label 선택: `label:has(input[name="re"])`
+19. **검색 Replace 토글 패턴**: CSS로 replace 요소 기본 숨김, `.show-replace` 클래스로 표시. JS에서 `panel.classList.add('show-replace')` 토글. Cmd+F vs Cmd+Shift+F 분리 구현
 
 ## Lezer Markdown Node Names
 
@@ -108,8 +110,8 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 - ~~**Task list `-` 마커 숨기기**~~: 해결됨 — TaskMarker의 `Decoration.replace()` 범위를 `- [x]` 전체로 확장. 이전 실패 원인은 앱 미재시작 (WKWebView 캐시)
 - **수식/테이블 블록 주변 커서 이동**: 렌더된 수식 블록($$...$$)과 테이블 주변에서 화살표 키가 macOS 네이티브와 다르게 동작. 노트 끝에서 위/아래 화살표 반복 시 커서가 문서 맨 처음으로 점프하는 버그 있음. `blockMathNavKeymap` 개선 필요
 - ~~**Always-on-top이 시스템 전체에서 작동 안 함**~~: 해결됨 — `hidesOnDeactivate = false` (critical), `level = .popUpMenu`, `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]`, `isFloatingPanel = true`, `orderFrontRegardless()` 조합
-- **타이틀바 영역 마우스 커서**: `fullSizeContentView` + `titlebarAppearsTransparent` 사용 시 타이틀바 영역에서 화살표 커서 대신 I-beam(텍스트) 커서 표시. Swift TitlebarCursorView + tracking area는 WKWebView가 무시. HTML overlay로 시도 중
-- **타이틀바/검색 UI 정렬**: 스크롤 시 타이틀바 영역에 텍스트 표시됨, Cmd+F 검색 패널이 타이틀바와 겹침. 콘텐츠 padding-top + overlay gradient 조합으로 시도 중
+- ~~**타이틀바 영역 마우스 커서**~~: 해결됨 — HTML overlay div (80px×28px, traffic lights 영역만)에 `cursor: default` + `pointer-events: auto`
+- ~~**타이틀바/검색 UI 정렬**~~: 해결됨 — `.cm-content` padding-top: 32px, `.cm-panels-top` marginTop: 28px, `#titlebar-mask` div에 노트 색상 동기화
 
 ## Debugging
 
