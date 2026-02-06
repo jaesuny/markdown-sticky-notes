@@ -281,6 +281,43 @@ class TaskCheckboxWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+// Bullet list marker widget (renders as styled dot)
+class BulletMarkerWidget extends WidgetType {
+  constructor() {
+    super();
+  }
+
+  eq(other) { return true; }
+
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-bullet-marker';
+    span.textContent = '•';
+    return span;
+  }
+
+  ignoreEvent() { return false; }
+}
+
+// Ordered list marker widget (renders as styled number)
+class OrderedMarkerWidget extends WidgetType {
+  constructor(number) {
+    super();
+    this.number = number;
+  }
+
+  eq(other) { return other.number === this.number; }
+
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-ordered-marker';
+    span.textContent = this.number + '.';
+    return span;
+  }
+
+  ignoreEvent() { return false; }
+}
+
 // ─── ViewPlugin: Syntax-tree markdown decorations ──────────────────────────
 
 function buildMarkdownDecos(view) {
@@ -459,14 +496,38 @@ function buildMarkdownDecos(view) {
             break;
 
           // ── Lists ───────────────────────────────────────────
-          case 'ListMark':
+          case 'ListMark': {
             // Task list dashes are handled by TaskMarker case
-            if (!view.state.sliceDoc(node.to, node.to + 2).startsWith(' [')) {
+            if (view.state.sliceDoc(node.to, node.to + 2).startsWith(' [')) break;
+
+            // Don't replace when cursor is on this line (allow editing)
+            if (cursorOnLine(node.from)) {
               builder.push(
                 Decoration.mark({ class: 'cm-md-list-mark' }).range(node.from, node.to)
               );
+              break;
+            }
+
+            const markerText = view.state.sliceDoc(node.from, node.to).trim();
+            // Check if ordered (number) or unordered (-, *, +)
+            if (/^\d+\.$/.test(markerText)) {
+              // Ordered list: extract number
+              const num = parseInt(markerText, 10);
+              builder.push(
+                Decoration.replace({
+                  widget: new OrderedMarkerWidget(num),
+                }).range(node.from, node.to)
+              );
+            } else {
+              // Unordered list: -, *, +
+              builder.push(
+                Decoration.replace({
+                  widget: new BulletMarkerWidget(),
+                }).range(node.from, node.to)
+              );
             }
             break;
+          }
 
           // ── Task List ───────────────────────────────────────
           // Replace "- [x]" or "- [ ]" as a single unit with a checkbox widget
@@ -945,8 +1006,31 @@ const editorTheme = EditorView.theme({
   '.cm-md-strikethrough': { textDecoration: 'line-through', opacity: '0.6' },
 
   // ── List markers ───────────────────────────────────────
-  '.cm-md-list-mark': { color: '#0969da', fontWeight: '700' },
-  '.cm-md-task-dash': { fontSize: '0px' },
+  // Source markers (visible when cursor on line)
+  '.cm-md-list-mark': {
+    color: 'inherit',
+    opacity: '0.35',
+  },
+  // Bullet marker widget (•)
+  '.cm-bullet-marker': {
+    color: 'inherit',
+    opacity: '0.7',
+    fontWeight: '900',
+    fontSize: '0.9em',
+    marginRight: '4px',
+  },
+  // Ordered marker widget (1. 2. 3.)
+  '.cm-ordered-marker': {
+    color: 'inherit',
+    opacity: '0.55',
+    fontWeight: '600',
+    fontSize: '0.85em',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
+    marginRight: '3px',
+    minWidth: '1.4em',
+    display: 'inline-block',
+    textAlign: 'right',
+  },
 
   // ── Task checkbox ──────────────────────────────────────
   '.cm-task-checkbox': {

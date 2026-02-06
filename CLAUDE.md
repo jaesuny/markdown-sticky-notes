@@ -110,6 +110,7 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 28. **CSS 텍스트 노드 타겟 불가**: CodeMirror가 텍스트를 `<span>` 없이 직접 텍스트 노드로 렌더링하는 경우 있음. CSS는 텍스트 노드 선택 불가 → 부모 `.cm-line`에 `color: transparent` 적용하고 위젯에서 `color: #000 !important`로 오버라이드
 29. **Inline 요소 애니메이션 한계**: `Decoration.replace()`는 소스를 DOM에서 제거 → crossfade 불가. `mark + widget` 조합은 sibling으로 배치되어 둘 다 공간 차지 → line-height 증가. `font-size: 0`도 레이아웃에 영향. Block은 `position: absolute` overlay 가능하지만 inline은 텍스트 흐름 때문에 불가. **현재 결론: inline math는 애니메이션 없이 즉시 전환**
 30. **EditorView.theme()에서 @keyframes 미지원**: `style-mod` 라이브러리 기반이라 `@keyframes` 정의 불가 — `document.head.appendChild(style)`로 별도 `<style>` 요소에 keyframes 주입, theme에서는 `animation` 속성만 참조
+31. **리스트 마커 위젯 패턴**: `ListMark` 노드를 `Decoration.replace()` + 커스텀 위젯으로 교체. Bullet은 `•` 문자, Ordered는 숫자 + `.`. `cursorOnLine()` 체크로 커서가 있을 때만 원본 마커 표시 (편집 가능). 다색 배경 대응: `color: inherit` + `opacity`로 어떤 파스텔 배경에서든 조화
 
 ## Lezer Markdown Node Names
 
