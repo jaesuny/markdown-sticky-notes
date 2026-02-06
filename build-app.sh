@@ -44,7 +44,7 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
     <key>CFBundleExecutable</key>
     <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.claude.stickynotes</string>
+    <string>com.mdstickynotes</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
