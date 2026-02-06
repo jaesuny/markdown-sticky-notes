@@ -33,14 +33,14 @@ A native macOS sticky note app with Obsidian-style markdown live preview, built 
 ## Installation
 
 ### Download
-Download the latest release from the [Releases](https://github.com/your-repo/releases) page.
+Download the latest release from the [Releases](https://github.com/jaesuny/markdown-sticky-notes/releases) page.
 
 ### Build from Source
 ```bash
 # Prerequisites: macOS 12+, Swift 5.9+, Node.js 18+
 
 # Clone and build
-git clone https://github.com/your-repo/claude-sticky-md.git
+git clone https://github.com/jaesuny/markdown-sticky-notes.git
 cd claude-sticky-md
 cd editor-web && npm install && cd ..
 ./build-app.sh
