@@ -62,6 +62,12 @@ class EditorBridge: NSObject, WKScriptMessageHandler {
         case "requestSave":
             handleSaveRequest()
 
+        case "openURL":
+            if let urlString = body["url"] as? String,
+               let url = URL(string: urlString) {
+                NSWorkspace.shared.open(url)
+            }
+
         case "log":
             if let message = body["message"] as? String {
                 print("[EditorBridge][JS] \(message)")

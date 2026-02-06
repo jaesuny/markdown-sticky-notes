@@ -112,6 +112,7 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 
 - ~~**Task list `-` 마커 숨기기**~~: 해결됨 — TaskMarker의 `Decoration.replace()` 범위를 `- [x]` 전체로 확장. 이전 실패 원인은 앱 미재시작 (WKWebView 캐시)
 - **수식/테이블 블록 주변 커서 이동**: 렌더된 수식 블록($$...$$)과 테이블 주변에서 화살표 키가 macOS 네이티브와 다르게 동작. 노트 끝에서 위/아래 화살표 반복 시 커서가 문서 맨 처음으로 점프하는 버그 있음. `blockMathNavKeymap` 개선 필요
+- ~~**헤딩 밑줄 제거 안됨**~~: 해결됨 — `Decoration.line()`은 `.cm-line`에 적용되지만, `defaultHighlightStyle`의 `t.heading` 밑줄은 내부 `<span>`에 적용됨. `markdownHighlightStyle`에서 `{ tag: t.heading, textDecoration: 'none' }` 추가로 해결
 - ~~**Always-on-top이 시스템 전체에서 작동 안 함**~~: 해결됨 — `hidesOnDeactivate = false` (critical), `level = .popUpMenu`, `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]`, `isFloatingPanel = true`, `orderFrontRegardless()` 조합
 - ~~**타이틀바 영역 마우스 커서**~~: 해결됨 — HTML overlay div (80px×28px, traffic lights 영역만)에 `cursor: default` + `pointer-events: auto`
 - ~~**타이틀바/검색 UI 정렬**~~: 해결됨 — `.cm-content` padding-top: 32px, `.cm-panels-top` marginTop: 28px, `#titlebar-mask` div에 노트 색상 동기화

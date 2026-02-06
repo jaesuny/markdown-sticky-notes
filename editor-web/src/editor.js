@@ -15,6 +15,17 @@ import { python } from '@codemirror/lang-python';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { json } from '@codemirror/lang-json';
+import { rust } from '@codemirror/lang-rust';
+import { go } from '@codemirror/lang-go';
+import { java } from '@codemirror/lang-java';
+import { cpp } from '@codemirror/lang-cpp';
+import { php } from '@codemirror/lang-php';
+import { sql } from '@codemirror/lang-sql';
+import { xml } from '@codemirror/lang-xml';
+import { yaml } from '@codemirror/lang-yaml';
+import { vue } from '@codemirror/lang-vue';
+import { StreamLanguage } from '@codemirror/language';
+import { shell } from '@codemirror/legacy-modes/mode/shell';
 
 // Static language list for WKWebView (no dynamic imports)
 const staticLanguages = {
@@ -23,6 +34,7 @@ const staticLanguages = {
   jsx: javascript({ jsx: true }),
   ts: javascript({ typescript: true }),
   tsx: javascript({ jsx: true, typescript: true }),
+  typescript: javascript({ typescript: true }),
   python: python(),
   py: python(),
   html: html(),
@@ -31,6 +43,28 @@ const staticLanguages = {
   scss: css(),
   less: css(),
   json: json(),
+  rust: rust(),
+  rs: rust(),
+  go: go(),
+  golang: go(),
+  java: java(),
+  cpp: cpp(),
+  c: cpp(),
+  'c++': cpp(),
+  cc: cpp(),
+  cxx: cpp(),
+  php: php(),
+  sql: sql(),
+  xml: xml(),
+  svg: xml(),
+  yaml: yaml(),
+  yml: yaml(),
+  vue: vue(),
+  // Legacy modes (StreamLanguage) — wrap in object with .language property
+  shell: { language: StreamLanguage.define(shell) },
+  bash: { language: StreamLanguage.define(shell) },
+  sh: { language: StreamLanguage.define(shell) },
+  zsh: { language: StreamLanguage.define(shell) },
 };
 
 // CodeMirror calls this with the language name string (e.g., "python", "js")
@@ -532,7 +566,7 @@ const blockMathNavKeymap = [
 // ─── HighlightStyle (fallback token colours) ───────────────────────────────
 
 const markdownHighlightStyle = HighlightStyle.define([
-  { tag: t.heading, fontWeight: 'bold' },
+  { tag: t.heading, fontWeight: 'bold', textDecoration: 'none' },
   { tag: t.strong, fontWeight: 'bold' },
   { tag: t.emphasis, fontStyle: 'italic' },
   { tag: t.link, color: '#0969da' },
@@ -590,12 +624,12 @@ const editorTheme = EditorView.theme({
 
   // ── Headings (line decorations → class on .cm-line) ──
   // Decoration.line() adds class to the .cm-line element
-  '.cm-heading-1': { fontSize: '1.8em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0' },
-  '.cm-heading-2': { fontSize: '1.5em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0' },
-  '.cm-heading-3': { fontSize: '1.25em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0' },
-  '.cm-heading-4': { fontSize: '1.1em', lineHeight: '1.3', fontWeight: '700', padding: '3px 0' },
-  '.cm-heading-5': { fontSize: '1.05em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0' },
-  '.cm-heading-6': { fontSize: '1em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0' },
+  '.cm-heading-1': { fontSize: '1.8em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0', textDecoration: 'none' },
+  '.cm-heading-2': { fontSize: '1.5em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0', textDecoration: 'none' },
+  '.cm-heading-3': { fontSize: '1.25em', lineHeight: '1.3', fontWeight: '700', padding: '4px 0', textDecoration: 'none' },
+  '.cm-heading-4': { fontSize: '1.1em', lineHeight: '1.3', fontWeight: '700', padding: '3px 0', textDecoration: 'none' },
+  '.cm-heading-5': { fontSize: '1.05em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0', textDecoration: 'none' },
+  '.cm-heading-6': { fontSize: '1em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0', textDecoration: 'none' },
 
   // ── Cursor line (for marker visibility) ─────────────
   '.cm-cursor-line': {
@@ -618,7 +652,18 @@ const editorTheme = EditorView.theme({
   '.cm-md-italic': { fontStyle: 'italic' },
 
   // ── Link ──────────────────────────────────────────────
-  '.cm-md-link': { color: '#0969da', textDecoration: 'underline' },
+  '.cm-md-link': {
+    color: '#0969da',
+    textDecoration: 'underline',
+    textDecorationColor: 'rgba(9, 105, 218, 0.3)',
+    borderRadius: '2px',
+    transition: 'background-color 0.15s, text-decoration-color 0.15s',
+    cursor: 'pointer',
+  },
+  '.cm-md-link:hover': {
+    backgroundColor: 'rgba(9, 105, 218, 0.1)',
+    textDecorationColor: 'rgba(9, 105, 218, 0.6)',
+  },
 
   // ── Inline Code Widget ────────────────────────────────
   '.cm-inline-code-widget': {
@@ -666,10 +711,15 @@ const editorTheme = EditorView.theme({
     margin: '8px 0',
   },
 
-  // ── URL (dim) ─────────────────────────────────────────
+  // ── URL (hidden when cursor not on line) ──────────────
   '.cm-md-url': {
-    opacity: '0.4',
+    fontSize: '0',
+    opacity: '0',
+    transition: 'opacity 0.1s, font-size 0.1s',
+  },
+  '.cm-cursor-line .cm-md-url': {
     fontSize: '0.85em',
+    opacity: '0.4',
   },
 
   // ── Math ──────────────────────────────────────────────
@@ -991,6 +1041,37 @@ function initEditor(initialContent = '') {
   editorView = new EditorView({
     state,
     parent: document.getElementById('editor-container'),
+  });
+
+  // Cmd+click to open links
+  editorView.dom.addEventListener('click', (e) => {
+    if (!e.metaKey) return;  // Only handle Cmd+click
+
+    const pos = editorView.posAtCoords({ x: e.clientX, y: e.clientY });
+    if (pos === null) return;
+
+    // Find Link node at position
+    let url = null;
+    syntaxTree(editorView.state).iterate({
+      from: pos,
+      to: pos,
+      enter(node) {
+        if (node.name === 'Link') {
+          // Find URL child node
+          let urlNode = node.node.getChild('URL');
+          if (urlNode) {
+            url = editorView.state.sliceDoc(urlNode.from, urlNode.to);
+          }
+        }
+      },
+    });
+
+    if (url) {
+      e.preventDefault();
+      // Send to Swift to open URL
+      sendToBridge('openURL', { url });
+      log('Opening URL: ' + url);
+    }
   });
 
   log('Editor ready');
