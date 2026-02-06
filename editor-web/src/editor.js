@@ -106,15 +106,68 @@ function log(message) {
 
 // ─── Widgets ───────────────────────────────────────────────────────────────
 
+// Cache for measured math widget heights (formula -> height in px)
+const mathHeightCache = new Map();
+
+// Measure math height by rendering inside editor container (cached)
+// Uses editor container width for accurate measurement
+let measureContainer = null;
+
+function measureMathHeight(formula, isBlock) {
+  const cacheKey = `${isBlock ? 'block' : 'inline'}:${formula}`;
+  const cached = mathHeightCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  // Create hidden container inside editor for accurate width
+  if (!measureContainer) {
+    measureContainer = document.createElement('div');
+    measureContainer.style.cssText = 'visibility:hidden;position:absolute;left:0;right:0;top:-9999px;overflow:hidden;';
+    const editorContainer = document.getElementById('editor-container');
+    if (editorContainer) {
+      editorContainer.appendChild(measureContainer);
+    } else {
+      document.body.appendChild(measureContainer);
+    }
+  }
+
+  const temp = document.createElement(isBlock ? 'div' : 'span');
+  temp.className = isBlock ? 'cm-math-block' : 'cm-math-inline';
+  // Apply same styles as theme (EditorView.theme styles don't apply outside .cm-editor)
+  if (isBlock) {
+    temp.style.cssText = 'padding:8px;display:block;';
+  }
+  measureContainer.appendChild(temp);
+
+  try {
+    katex.render(formula, temp, {
+      throwOnError: false,
+      displayMode: isBlock,
+    });
+  } catch (e) {
+    temp.textContent = formula;
+  }
+
+  const height = temp.offsetHeight;
+  measureContainer.removeChild(temp);
+
+  mathHeightCache.set(cacheKey, height);
+  return height;
+}
+
 class MathWidget extends WidgetType {
-  constructor(formula, isBlock) {
+  constructor(formula, isBlock, height) {
     super();
     this.formula = formula;
     this.isBlock = isBlock;
+    this._height = height;
   }
 
   eq(other) {
     return other.formula === this.formula && other.isBlock === this.isBlock;
+  }
+
+  get estimatedHeight() {
+    return this._height;
   }
 
   toDOM() {
@@ -124,6 +177,37 @@ class MathWidget extends WidgetType {
       katex.render(this.formula, wrap, {
         throwOnError: false,
         displayMode: this.isBlock,
+      });
+    } catch (e) {
+      wrap.textContent = this.formula;
+      wrap.className += ' cm-math-error';
+    }
+    return wrap;
+  }
+
+  ignoreEvent() { return false; }
+}
+
+// Overlay widget for block math - positioned absolute over source lines
+class MathOverlayWidget extends WidgetType {
+  constructor(formula, height) {
+    super();
+    this.formula = formula;
+    this._height = height;
+  }
+
+  eq(other) {
+    return other.formula === this.formula;
+  }
+
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-math-overlay';
+    wrap.style.height = this._height + 'px';
+    try {
+      katex.render(this.formula, wrap, {
+        throwOnError: false,
+        displayMode: true,
       });
     } catch (e) {
       wrap.textContent = this.formula;
@@ -442,6 +526,7 @@ function buildMathDecorations(state) {
   }
 
   // 1. Block math: $$...$$  (multiline ok)
+  // New approach: overlay widget over source lines with adjusted line-height
   const blockRe = /\$\$[\s\S]*?\$\$/g;
   while ((match = blockRe.exec(text)) !== null) {
     if (isInsideCode(match.index, codeRanges)) continue;
@@ -449,11 +534,32 @@ function buildMathDecorations(state) {
     if (cursorInside(mFrom, mTo)) continue; // show raw source
     const formula = match[0].slice(2, -2).trim();
     if (!formula || KOREAN_RE.test(formula)) continue;
+
+    const widgetHeight = measureMathHeight(formula, true);
+    const startLine = state.doc.lineAt(mFrom);
+    const endLine = state.doc.lineAt(mTo);
+    const lineCount = endLine.number - startLine.number + 1;
+    const lineHeight = Math.ceil(widgetHeight / lineCount);
+
+    // Add line decorations: hide text + adjust line-height
+    for (let i = startLine.number; i <= endLine.number; i++) {
+      const line = state.doc.line(i);
+      widgets.push(
+        Decoration.line({
+          attributes: {
+            style: `line-height:${lineHeight}px;height:${lineHeight}px;color:transparent;`,
+            class: 'cm-math-source-line',
+          },
+        }).range(line.from)
+      );
+    }
+
+    // Add overlay widget at first line (inline widget with absolute positioning)
     widgets.push(
-      Decoration.replace({
-        widget: new MathWidget(formula, true),
-        block: true,
-      }).range(mFrom, mTo)
+      Decoration.widget({
+        widget: new MathOverlayWidget(formula, widgetHeight),
+        side: -1, // Before line content
+      }).range(startLine.from)
     );
   }
 
@@ -465,9 +571,10 @@ function buildMathDecorations(state) {
     if (cursorInside(mFrom, mTo)) continue; // show raw source
     const formula = match[1].trim();
     if (!formula || KOREAN_RE.test(formula)) continue;
+    const height = measureMathHeight(formula, false);
     widgets.push(
       Decoration.replace({
-        widget: new MathWidget(formula, false),
+        widget: new MathWidget(formula, false, height),
       }).range(mFrom, mTo)
     );
   }
@@ -687,12 +794,12 @@ const editorTheme = EditorView.theme({
   '.cm-md-fenced-code-first': {
     borderTopLeftRadius: '6px',
     borderTopRightRadius: '6px',
-    paddingTop: '4px',
+    paddingTop: '2px',
   },
   '.cm-md-fenced-code-last': {
     borderBottomLeftRadius: '6px',
     borderBottomRightRadius: '6px',
-    paddingBottom: '4px',
+    paddingBottom: '2px',
   },
 
   // ── Blockquote (line decoration) ──────────────────────
@@ -731,15 +838,49 @@ const editorTheme = EditorView.theme({
   },
   '.cm-math-block': {
     backgroundColor: 'rgba(92, 106, 196, 0.05)',
-    padding: '16px',
+    padding: '8px',
     borderRadius: '8px',
-    margin: '8px 0',
+    margin: '4px 0',
     display: 'block',
     overflow: 'auto',
   },
   '.cm-math-error': {
     color: '#d73a49',
     backgroundColor: 'rgba(215, 58, 73, 0.1)',
+  },
+  // Overlay approach for block math - widget positioned over transparent source
+  '.cm-math-overlay': {
+    position: 'absolute',
+    left: '0',
+    right: '0',
+    top: '0',
+    backgroundColor: 'rgba(92, 106, 196, 0.05)',
+    padding: '8px',
+    borderRadius: '8px',
+    display: 'block',
+    overflow: 'hidden',
+    pointerEvents: 'none', // Allow clicks to pass through to source lines
+    zIndex: '10',
+    boxSizing: 'border-box',
+    color: '#000 !important', // Override inherited transparent color
+  },
+  '.cm-math-overlay *': {
+    color: 'inherit !important', // Ensure KaTeX content is visible
+  },
+  '.cm-line.cm-math-source-line': {
+    position: 'relative', // For overlay positioning context
+  },
+  // First source line needs to be the positioning context
+  '.cm-line.cm-math-source-line:has(.cm-math-overlay)': {
+    position: 'relative',
+  },
+  // Hide all text inside source lines (including syntax-highlighted spans)
+  // But NOT the overlay widget content
+  '.cm-line.cm-math-source-line > *:not(.cm-math-overlay)': {
+    color: 'transparent !important',
+  },
+  '.cm-line.cm-math-source-line > span': {
+    color: 'transparent !important',
   },
 
   // ── Strikethrough ──────────────────────────────────────
