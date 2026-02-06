@@ -10,7 +10,43 @@ import { EditorState, StateField } from '@codemirror/state';
 import { EditorView, keymap, Decoration, WidgetType, ViewPlugin } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
+import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { json } from '@codemirror/lang-json';
+
+// Static language list for WKWebView (no dynamic imports)
+const staticLanguages = {
+  javascript: javascript(),
+  js: javascript(),
+  jsx: javascript({ jsx: true }),
+  ts: javascript({ typescript: true }),
+  tsx: javascript({ jsx: true, typescript: true }),
+  python: python(),
+  py: python(),
+  html: html(),
+  htm: html(),
+  css: css(),
+  scss: css(),
+  less: css(),
+  json: json(),
+};
+
+// CodeMirror calls this with the language name string (e.g., "python", "js")
+// Must return Language object, not LanguageSupport
+function findLanguage(info) {
+  if (!info) return null;
+  const name = (typeof info === 'string' ? info : info.name || '').toLowerCase();
+  const langSupport = staticLanguages[name];
+  if (langSupport) {
+    console.log('[Syntax] Found language:', name);
+    return langSupport.language;  // Return Language, not LanguageSupport
+  }
+  console.log('[Syntax] Unknown language:', name);
+  return null;
+}
+import { syntaxHighlighting, HighlightStyle, syntaxTree, defaultHighlightStyle } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { GFM } from '@lezer/markdown';
 import { search, searchKeymap, highlightSelectionMatches, openSearchPanel } from '@codemirror/search';
@@ -128,6 +164,15 @@ function buildMarkdownDecos(view) {
     builder.push(Decoration.line({ class: cls }).range(lineStart));
   }
 
+  // Check if position is on the same line as cursor
+  const cursorLine = view.state.doc.lineAt(curFrom).number;
+  function cursorOnLine(pos) {
+    return view.state.doc.lineAt(pos).number === cursorLine;
+  }
+
+  // Add cursor line decoration for marker visibility
+  addLineDeco(view.state.doc.line(cursorLine).from, 'cm-cursor-line');
+
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(view.state).iterate({
       from,
@@ -154,10 +199,12 @@ function buildMarkdownDecos(view) {
             addLineDeco(node.from, 'cm-heading-6');
             break;
 
-          // ── Markers (dim) ─────────────────────────────────
+          // ── Markers (hidden when cursor not on line) ──────
           case 'HeaderMark':
           case 'EmphasisMark':
           case 'QuoteMark':
+          case 'CodeMark':  // ``` fenced code markers
+          case 'CodeInfo':  // language name after ```
             builder.push(
               Decoration.mark({ class: 'cm-md-marker' }).range(node.from, node.to)
             );
@@ -230,7 +277,10 @@ function buildMarkdownDecos(view) {
             const startLine = view.state.doc.lineAt(node.from).number;
             const endLine = view.state.doc.lineAt(node.to).number;
             for (let i = startLine; i <= endLine; i++) {
-              addLineDeco(view.state.doc.line(i).from, 'cm-md-fenced-code');
+              let classes = 'cm-md-fenced-code';
+              if (i === startLine) classes += ' cm-md-fenced-code-first';
+              if (i === endLine) classes += ' cm-md-fenced-code-last';
+              addLineDeco(view.state.doc.line(i).from, classes);
             }
             break;
           }
@@ -547,8 +597,21 @@ const editorTheme = EditorView.theme({
   '.cm-heading-5': { fontSize: '1.05em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0' },
   '.cm-heading-6': { fontSize: '1em', lineHeight: '1.3', fontWeight: '700', padding: '2px 0' },
 
-  // ── Markers (dim) ─────────────────────────────────────
-  '.cm-md-marker': { opacity: '0.3' },
+  // ── Cursor line (for marker visibility) ─────────────
+  '.cm-cursor-line': {
+    // Markers are visible only on cursor line
+  },
+
+  // ── Markers (hidden by default, visible on cursor line) ──
+  '.cm-md-marker': {
+    fontSize: '0',
+    opacity: '0',
+    transition: 'opacity 0.1s, font-size 0.1s',
+  },
+  '.cm-cursor-line .cm-md-marker': {
+    fontSize: 'inherit',
+    opacity: '0.35',
+  },
 
   // ── Bold / Italic ─────────────────────────────────────
   '.cm-md-bold': { fontWeight: '700' },
@@ -568,9 +631,23 @@ const editorTheme = EditorView.theme({
 
   // ── Fenced Code Block (line decoration) ───────────────
   '.cm-md-fenced-code': {
-    backgroundColor: 'rgba(175, 184, 193, 0.1)',
+    backgroundColor: 'rgba(175, 184, 193, 0.15)',
     fontFamily: 'Monaco, Menlo, "Courier New", monospace',
     fontSize: '0.9em',
+    marginLeft: '-8px',
+    marginRight: '-8px',
+    paddingLeft: '12px',
+    paddingRight: '12px',
+  },
+  '.cm-md-fenced-code-first': {
+    borderTopLeftRadius: '6px',
+    borderTopRightRadius: '6px',
+    paddingTop: '4px',
+  },
+  '.cm-md-fenced-code-last': {
+    borderBottomLeftRadius: '6px',
+    borderBottomRightRadius: '6px',
+    paddingBottom: '4px',
   },
 
   // ── Blockquote (line decoration) ──────────────────────
@@ -633,10 +710,22 @@ const editorTheme = EditorView.theme({
   // ── Table ──────────────────────────────────────────────
   '.cm-md-table': {
     fontFamily: 'Monaco, Menlo, "Courier New", monospace',
-    fontSize: '0.9em',
+    fontSize: '0.85em',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    padding: '4px 12px',
+    marginLeft: '-8px',
+    marginRight: '-8px',
+    borderLeft: '3px solid rgba(0, 0, 0, 0.15)',
   },
-  '.cm-md-table-header': { fontWeight: '700' },
-  '.cm-md-table-delimiter': { opacity: '0.3' },
+  '.cm-md-table-header': {
+    fontWeight: '700',
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  '.cm-md-table-delimiter': {
+    opacity: '0.3',
+    fontSize: '0.8em',
+    color: 'rgba(0, 0, 0, 0.4)',
+  },
 
   // ── Search Panel ────────────────────────────────────────
   // base theme의 #f5f5f5 회색 배경 제거 — 노트 배경색이 보이도록
@@ -877,8 +966,9 @@ function initEditor(initialContent = '') {
     extensions: [
       history(),
       keymap.of([...blockMathNavKeymap, ...formattingKeymap, ...searchKeymap, ...defaultKeymap, ...historyKeymap]),
-      markdown({ extensions: GFM }),
+      markdown({ extensions: GFM, codeLanguages: findLanguage }),
       syntaxHighlighting(markdownHighlightStyle),
+      syntaxHighlighting(defaultHighlightStyle),  // Code block syntax colors
       markdownDecoPlugin,
       mathRenderField,
       search({ top: true }),
