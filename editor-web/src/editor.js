@@ -13,6 +13,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { GFM } from '@lezer/markdown';
+import { search, searchKeymap, highlightSelectionMatches, openSearchPanel } from '@codemirror/search';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -521,6 +522,7 @@ const editorTheme = EditorView.theme({
     fontSize: '14px',
     height: '100%',
     backgroundColor: 'transparent',
+    color: '#1a1a1a',
   },
   '.cm-content': {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
@@ -636,22 +638,248 @@ const editorTheme = EditorView.theme({
   '.cm-md-table-header': { fontWeight: '700' },
   '.cm-md-table-delimiter': { opacity: '0.3' },
 
+  // ── Search Panel ────────────────────────────────────────
+  // base theme의 #f5f5f5 회색 배경 제거 — 노트 배경색이 보이도록
+  '.cm-panels.cm-panels': {
+    backgroundColor: 'transparent',
+    color: 'inherit',
+  },
+  '.cm-panels-top.cm-panels-top': {
+    borderBottom: 'none',
+  },
+  '.cm-panel.cm-search': {
+    padding: '6px 10px',
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+    fontSize: '12px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
+    color: 'inherit',
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '3px 6px',
+    '& br': { display: 'none' },
+  },
+  // Text inputs (search / replace) — 밝은 배경으로 입력 영역 강조
+  '.cm-panel.cm-search input.cm-textfield': {
+    fontSize: '12px',
+    padding: '4px 8px',
+    borderRadius: '5px',
+    border: '1px solid rgba(0, 0, 0, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    color: 'inherit',
+    outline: 'none',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
+  },
+  '.cm-panel.cm-search input.cm-textfield:focus': {
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    borderColor: 'rgba(0, 0, 0, 0.15)',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+  },
+  // Action buttons (next, prev, all, replace, replace all)
+  // base theme이 &light .cm-button에 회색 gradient 배경 설정 — 리셋 필요
+  '.cm-panel.cm-search button.cm-button.cm-button': {
+    fontSize: '11px',
+    fontWeight: '500',
+    padding: '3px 8px',
+    borderRadius: '4px',
+    border: '1px solid rgba(0, 0, 0, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    backgroundImage: 'none',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: 'all 0.12s',
+    color: 'inherit',
+    lineHeight: '1.4',
+    boxShadow: '0 1px 1px rgba(0, 0, 0, 0.04)',
+  },
+  '.cm-panel.cm-search button.cm-button.cm-button:hover': {
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    backgroundImage: 'none',
+    borderColor: 'rgba(0, 0, 0, 0.12)',
+  },
+  '.cm-panel.cm-search button.cm-button.cm-button:active': {
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    backgroundImage: 'none',
+    transform: 'scale(0.97)',
+    boxShadow: 'none',
+  },
+  // Checkbox labels (match case, regexp, by word)
+  '.cm-panel.cm-search label': {
+    fontSize: '10.5px',
+    color: 'inherit',
+    opacity: '0.6',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '3px',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    transition: 'all 0.12s',
+    border: '1px solid transparent',
+    userSelect: 'none',
+    '&:hover': {
+      opacity: '0.85',
+      backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    },
+  },
+  // Custom checkbox — hide native, draw a rounded box
+  '.cm-panel.cm-search input[type=checkbox]': {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    width: '12px',
+    height: '12px',
+    borderRadius: '3px',
+    border: '1.5px solid currentColor',
+    opacity: '0.5',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    position: 'relative',
+    flexShrink: '0',
+    transition: 'all 0.12s',
+    margin: '0',
+  },
+  '.cm-panel.cm-search input[type=checkbox]:checked': {
+    backgroundColor: 'currentColor',
+    opacity: '0.8',
+  },
+  '.cm-panel.cm-search input[type=checkbox]:checked::after': {
+    content: '""',
+    position: 'absolute',
+    left: '3px',
+    top: '0.5px',
+    width: '4px',
+    height: '7px',
+    border: 'solid rgba(255, 255, 255, 0.9)',
+    borderWidth: '0 1.5px 1.5px 0',
+    transform: 'rotate(45deg)',
+  },
+  // Close button (×)
+  '.cm-panel.cm-search button[name="close"]': {
+    marginLeft: 'auto',
+    color: 'inherit',
+    opacity: '0.35',
+    fontSize: '16px',
+    cursor: 'pointer',
+    padding: '1px 4px',
+    borderRadius: '4px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    lineHeight: '1',
+    transition: 'all 0.12s',
+    '&:hover': { opacity: '0.6', backgroundColor: 'rgba(255, 255, 255, 0.2)' },
+  },
+  // Match highlights in editor
+  '.cm-searchMatch': {
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+    borderRadius: '2px',
+    boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.5)',
+  },
+  '.cm-searchMatch-selected': {
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    boxShadow: '0 0 0 1.5px rgba(255, 255, 255, 0.7)',
+  },
+  '.cm-selectionMatch': {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: '2px',
+  },
+
 }, { dark: false });
 
-const darkTheme = EditorView.theme({
-  '.cm-content': { color: '#e0e0e0', caretColor: '#8c9eff' },
-  '.cm-cursor': { borderLeftColor: '#8c9eff' },
-  '.cm-md-bold': { color: '#e0e0e0' },
-  '.cm-md-marker': { opacity: '0.25' },
-  '.cm-md-link': { color: '#8c9eff' },
-  '.cm-md-blockquote': { borderLeftColor: '#555', color: '#aaa' },
-  '.cm-md-fenced-code': { backgroundColor: 'rgba(255,255,255,0.05)' },
-  '.cm-inline-code-widget': { backgroundColor: 'rgba(255,255,255,0.1)' },
-  '.cm-math-inline': { backgroundColor: 'rgba(140,158,255,0.1)' },
-  '.cm-math-block': { backgroundColor: 'rgba(140,158,255,0.07)' },
-  '.cm-md-list-mark': { color: '#8c9eff' },
-  '.cm-md-table': { backgroundColor: 'rgba(255,255,255,0.03)' },
-}, { dark: true });
+// ─── Note Controls (Color Picker + Opacity Slider) ─────────────────────────
+
+const NOTE_COLORS = {
+  yellow: '#FFF9C4', pink: '#FCE4EC', blue: '#E3F2FD',
+  green: '#E8F5E9', purple: '#F3E5F5', orange: '#FFF3E0',
+};
+
+window.initColorPicker = function (currentColor, currentOpacity) {
+  // Remove existing controls if any
+  document.querySelector('.note-controls')?.remove();
+
+  // Inject CSS once
+  if (!document.getElementById('note-controls-style')) {
+    const style = document.createElement('style');
+    style.id = 'note-controls-style';
+    style.textContent = `
+      .note-controls {
+        position: fixed; top: 0; right: 6px;
+        display: flex; align-items: center; gap: 6px;
+        z-index: 1000; padding: 3px 4px;
+        opacity: 0; transition: opacity 0.2s;
+      }
+      .note-controls:hover { opacity: 1; }
+      .color-dot {
+        width: 11px; height: 11px; border-radius: 50%;
+        cursor: pointer; border: 1.5px solid rgba(0,0,0,0.12);
+        transition: transform 0.15s, border-color 0.15s;
+        flex-shrink: 0;
+      }
+      .color-dot:hover { transform: scale(1.3); }
+      .color-dot.active {
+        border: 2px solid rgba(0,0,0,0.45);
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.6);
+      }
+      .controls-sep {
+        width: 1px; height: 10px;
+        background: rgba(0,0,0,0.12); margin: 0 2px;
+      }
+      .opacity-slider {
+        -webkit-appearance: none; appearance: none;
+        width: 48px; height: 3px;
+        background: rgba(0,0,0,0.15); border-radius: 2px;
+        outline: none; cursor: pointer;
+      }
+      .opacity-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 10px; height: 10px; border-radius: 50%;
+        background: rgba(0,0,0,0.35); cursor: pointer;
+        transition: background 0.15s;
+      }
+      .opacity-slider::-webkit-slider-thumb:hover {
+        background: rgba(0,0,0,0.55);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const controls = document.createElement('div');
+  controls.className = 'note-controls';
+
+  // Color dots
+  Object.entries(NOTE_COLORS).forEach(([name, hex]) => {
+    const dot = document.createElement('div');
+    dot.className = 'color-dot' + (name === currentColor ? ' active' : '');
+    dot.style.backgroundColor = hex;
+    dot.addEventListener('click', () => {
+      sendToBridge('changeColor', { color: name });
+      controls.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+      dot.classList.add('active');
+    });
+    controls.appendChild(dot);
+  });
+
+  // Separator
+  const sep = document.createElement('div');
+  sep.className = 'controls-sep';
+  controls.appendChild(sep);
+
+  // Opacity slider
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '20';
+  slider.max = '100';
+  slider.value = String(Math.round((currentOpacity ?? 0.95) * 100));
+  slider.className = 'opacity-slider';
+  slider.addEventListener('input', () => {
+    sendToBridge('changeOpacity', { opacity: parseInt(slider.value) / 100 });
+  });
+  controls.appendChild(slider);
+
+  document.body.appendChild(controls);
+};
 
 // ─── Editor initialization ─────────────────────────────────────────────────
 
@@ -665,13 +893,14 @@ function initEditor(initialContent = '') {
     doc: initialContent,
     extensions: [
       history(),
-      keymap.of([...blockMathNavKeymap, ...formattingKeymap, ...defaultKeymap, ...historyKeymap]),
+      keymap.of([...blockMathNavKeymap, ...formattingKeymap, ...searchKeymap, ...defaultKeymap, ...historyKeymap]),
       markdown({ extensions: GFM }),
       syntaxHighlighting(markdownHighlightStyle),
       markdownDecoPlugin,
       mathRenderField,
+      search({ top: true }),
+      highlightSelectionMatches(),
       editorTheme,
-      window.matchMedia('(prefers-color-scheme: dark)').matches ? darkTheme : [],
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           clearTimeout(debounceTimer);
@@ -718,6 +947,11 @@ window.setContent = function (content) {
 
 window.getContent = function () {
   return editorView ? editorView.state.doc.toString() : '';
+};
+
+// Open search panel (called from Swift via Cmd+F menu)
+window.openSearch = function () {
+  if (editorView) openSearchPanel(editorView);
 };
 
 // Debug: dump syntax tree nodes

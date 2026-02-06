@@ -67,14 +67,14 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 ### Swift-JS Bridge
 
 - **JS → Swift**: `sendToBridge(action, data)` → `ready`, `contentChanged`, `requestSave`, `log`, `error`
-- **Swift → JS**: `window.setContent(content)`, `window.getContent()`
+- **Swift → JS**: `window.setContent(content)`, `window.getContent()`, `window.openSearch()`
 - Console.log 인터셉트: `WKUserScript` at document start → Swift 콘솔로 전달
 
 ## Implementation Status
 
 - **Phase 1 ✅**: App structure, NSPanel windows, persistence, WKWebView
 - **Phase 2 ✅**: CodeMirror 6, syntax tree decorations, KaTeX math, cursor unfold
-- **Phase 3 **: 추가 마크다운 요소 (취소선, 리스트 스타일, 체크박스 위젯, 테이블)
+- **Phase 3 ✅**: 추가 마크다운 요소 (취소선, 리스트 스타일, 체크박스 위젯, 테이블)
 - **Phase 4**: Multi-window 개선
 - **Phase 5**: Preferences, export
 
@@ -91,6 +91,9 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 9. **`defaultKeymap` macOS 바인딩**: Cmd+Arrow, Cmd+Shift+Arrow, Opt+Arrow 등 이미 포함됨 — 커스텀 핸들러로 재정의하면 scrollIntoView, goal column 등 네이티브 동작이 깨짐. 포맷팅 키(Cmd+B/I/K)만 추가할 것
 10. **`markdown({ base: markdownLanguage })` GFM 손실**: `parser.configure()` 내부 호출이 GFM 확장을 덮어씀 — `import { GFM } from '@lezer/markdown'` 후 `markdown({ extensions: GFM })` 사용
 11. **NSWindow 이중 close**: `windowWillClose` → `closeWindow()` → `close()` → `windowWillClose` 무한 재귀 — `windowWillClose`에서는 `removeWindow()`(딕셔너리 제거만), `closeWindow()`는 `syncWindowsWithNotes`에서만 사용
+12. **macOS 메뉴 단축키 가로채기**: Cmd+F 등 시스템 단축키는 WKWebView에 도달 전 메뉴 바에서 소비됨 — `CommandGroup(replacing: .textEditing)`로 Swift 메뉴에서 잡아 `evaluateJavaScript("window.openSearch()")`로 JS에 전달하는 패턴 사용
+13. **검색 패널 색상**: `rgba(0,0,0,alpha)` 텍스트 색상은 어떤 배경에서든 회색으로 보임 — 버튼/레이블/체크박스는 `color: inherit` + `opacity` 또는 `currentColor`로 부모 텍스트 색 상속. hover 배경은 `rgba(255,255,255,alpha)` 밝은 방향으로
+14. **`@codemirror/search` 패널 DOM**: `<br>`로 레이아웃 → `& br: { display: 'none' }` + `display: flex` 적용. 체크박스는 `<label>` 안에 `<input type=checkbox>`. 닫기 버튼은 `button[name="close"]`. `style-mod`이 `&` 중첩 셀렉터 지원
 
 ## Lezer Markdown Node Names
 
