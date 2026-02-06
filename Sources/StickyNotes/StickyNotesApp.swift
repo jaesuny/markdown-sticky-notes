@@ -13,7 +13,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         coordinator.isQuitting = true
+        coordinator.saveLastActiveNote()
         coordinator.saveAllNotesImmediately()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        coordinator.restoreLastActiveNote()
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -78,6 +83,15 @@ struct MenuBarCommands: Scene {
                     }
                 }
                 .keyboardShortcut("f", modifiers: .command)
+
+                Button("Find and Replace...") {
+                    if let noteId = coordinator.focusedNoteId(),
+                       let wc = coordinator.windowManager.getWindowController(for: noteId),
+                       let webView = wc.webView {
+                        webView.evaluateJavaScript("window.openSearchWithReplace()")
+                    }
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             }
 
             // Window menu — Cmd+` to cycle between note windows

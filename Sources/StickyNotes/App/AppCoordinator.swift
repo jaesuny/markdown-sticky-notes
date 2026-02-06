@@ -92,6 +92,12 @@ class AppCoordinator: ObservableObject {
         windowManager.getWindowController(for: noteId)?.setOpacity(opacity)
     }
 
+    /// Toggle a note's always-on-top setting
+    func setNoteAlwaysOnTop(noteId: UUID, alwaysOnTop: Bool) {
+        noteManager.updateNoteAlwaysOnTop(noteId, alwaysOnTop: alwaysOnTop)
+        windowManager.getWindowController(for: noteId)?.setAlwaysOnTop(alwaysOnTop)
+    }
+
     /// Get the note ID of the currently focused window
     func focusedNoteId() -> UUID? {
         guard let keyWindow = NSApp.keyWindow else { return nil }
@@ -113,19 +119,56 @@ class AppCoordinator: ObservableObject {
         }
     }
 
-    /// Flush JS editor content and save — called on app termination
+    // MARK: - Last Active Note Persistence
+
+    private static let lastActiveNoteKey = "lastActiveNoteId"
+
+    /// Save the currently focused note ID to UserDefaults
+    func saveLastActiveNote() {
+        if let noteId = focusedNoteId() {
+            UserDefaults.standard.set(noteId.uuidString, forKey: Self.lastActiveNoteKey)
+        }
+    }
+
+    /// Restore focus to the last active note (called after app launch)
+    func restoreLastActiveNote() {
+        guard let idString = UserDefaults.standard.string(forKey: Self.lastActiveNoteKey),
+              let noteId = UUID(uuidString: idString) else { return }
+
+        // Small delay to ensure windows are fully loaded
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.windowManager.bringToFront(noteId)
+        }
+    }
+
+    /// Flush JS editor content and cursor position, then save — called on app termination
     func saveAllNotesImmediately() {
         var pending = 0
 
-        // Pull latest content from each editor's JS (bypasses the 300ms debounce)
+        // Pull latest content and cursor position from each editor's JS
         for note in noteManager.notes {
             guard let wc = windowManager.getWindowController(for: note.id),
                   let webView = wc.webView else { continue }
 
-            pending += 1
+            pending += 3  // Three async calls per note
+
             webView.evaluateJavaScript("window.getContent()") { [weak self] result, _ in
                 if let content = result as? String {
                     self?.noteManager.updateNoteContent(note.id, content: content)
+                }
+                pending -= 1
+            }
+
+            webView.evaluateJavaScript("window.getCursorPosition()") { [weak self] result, _ in
+                if let position = result as? Int {
+                    self?.noteManager.updateNoteCursorPosition(note.id, cursorPosition: position)
+                }
+                pending -= 1
+            }
+
+            webView.evaluateJavaScript("window.getScrollTop()") { [weak self] result, _ in
+                if let scrollTop = result as? Double {
+                    self?.noteManager.updateNoteScrollTop(note.id, scrollTop: scrollTop)
                 }
                 pending -= 1
             }

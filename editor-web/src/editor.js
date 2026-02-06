@@ -526,7 +526,7 @@ const editorTheme = EditorView.theme({
   },
   '.cm-content': {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
-    padding: '16px',
+    padding: '32px 16px 16px 16px',  // top: 32px for titlebar spacing
     minHeight: '100%',
     caretColor: '#5c6ac4',
   },
@@ -646,6 +646,7 @@ const editorTheme = EditorView.theme({
   },
   '.cm-panels-top.cm-panels-top': {
     borderBottom: 'none',
+    marginTop: '28px',  // below titlebar
   },
   '.cm-panel.cm-search': {
     padding: '6px 10px',
@@ -706,7 +707,29 @@ const editorTheme = EditorView.theme({
     transform: 'scale(0.97)',
     boxShadow: 'none',
   },
-  // Checkbox labels (match case, regexp, by word)
+  // Hide regexp and by-word options
+  '.cm-panel.cm-search label:has(input[name="re"])': { display: 'none' },
+  '.cm-panel.cm-search label:has(input[name="word"])': { display: 'none' },
+  // Match case label — show as "Aa" icon
+  '.cm-panel.cm-search label:has(input[name="case"])': {
+    fontSize: '0px',  // hide original text
+    padding: '3px 5px',
+    opacity: '0.4',
+    '&::after': {
+      content: '"Aa"',
+      fontSize: '12px',
+      fontWeight: '600',
+      fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+    },
+    '&:has(input:checked)': {
+      opacity: '0.9',
+      backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    },
+  },
+  '.cm-panel.cm-search label:has(input[name="case"]) input': {
+    display: 'none',  // hide checkbox, just show Aa
+  },
+  // Other checkbox labels (if any remain)
   '.cm-panel.cm-search label': {
     fontSize: '10.5px',
     color: 'inherit',
@@ -756,6 +779,30 @@ const editorTheme = EditorView.theme({
     borderWidth: '0 1.5px 1.5px 0',
     transform: 'rotate(45deg)',
   },
+  // Hide "All" button (select all matches)
+  '.cm-panel.cm-search button[name="select"]': {
+    display: 'none',
+  },
+  // Hide replace section by default
+  '.cm-panel.cm-search input[name="replace"]': {
+    display: 'none',
+  },
+  '.cm-panel.cm-search button[name="replace"]': {
+    display: 'none',
+  },
+  '.cm-panel.cm-search button[name="replaceAll"]': {
+    display: 'none',
+  },
+  // Show replace when .show-replace class is added
+  '.cm-panel.cm-search.show-replace input[name="replace"]': {
+    display: 'block',
+  },
+  '.cm-panel.cm-search.show-replace button[name="replace"]': {
+    display: 'inline-block',
+  },
+  '.cm-panel.cm-search.show-replace button[name="replaceAll"]': {
+    display: 'inline-block',
+  },
   // Close button (×)
   '.cm-panel.cm-search button[name="close"]': {
     marginLeft: 'auto',
@@ -773,13 +820,13 @@ const editorTheme = EditorView.theme({
   },
   // Match highlights in editor
   '.cm-searchMatch': {
-    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+    backgroundColor: 'rgba(255, 180, 50, 0.4)',
     borderRadius: '2px',
-    boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.5)',
+    boxShadow: '0 0 0 1px rgba(255, 150, 0, 0.5)',
   },
   '.cm-searchMatch-selected': {
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-    boxShadow: '0 0 0 1.5px rgba(255, 255, 255, 0.7)',
+    backgroundColor: 'rgba(255, 130, 0, 0.5)',
+    boxShadow: '0 0 0 2px rgba(255, 100, 0, 0.6)',
   },
   '.cm-selectionMatch': {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -788,98 +835,34 @@ const editorTheme = EditorView.theme({
 
 }, { dark: false });
 
-// ─── Note Controls (Color Picker + Opacity Slider) ─────────────────────────
+// ─── Note Controls ──────────────────────────────────────────────────────────
+// Note controls (color, opacity, pin) are now handled in Swift titlebar.
+// This stub exists for backward compatibility with EditorBridge.
 
-const NOTE_COLORS = {
-  yellow: '#FFF9C4', pink: '#FCE4EC', blue: '#E3F2FD',
-  green: '#E8F5E9', purple: '#F3E5F5', orange: '#FFF3E0',
+// Color hex map matching NoteColor.swift
+const noteColorHex = {
+  yellow: '#FFF9C4',
+  pink: '#FCE4EC',
+  blue: '#E3F2FD',
+  green: '#E8F5E9',
+  purple: '#F3E5F5',
+  orange: '#FFF3E0',
 };
 
-window.initColorPicker = function (currentColor, currentOpacity) {
-  // Remove existing controls if any
-  document.querySelector('.note-controls')?.remove();
+window.initNoteControls = function (currentColor, currentOpacity, currentAlwaysOnTop) {
+  // Set titlebar mask color to match note background
+  window.setNoteColor(currentColor);
+};
 
-  // Inject CSS once
-  if (!document.getElementById('note-controls-style')) {
-    const style = document.createElement('style');
-    style.id = 'note-controls-style';
-    style.textContent = `
-      .note-controls {
-        position: fixed; top: 0; right: 6px;
-        display: flex; align-items: center; gap: 6px;
-        z-index: 1000; padding: 3px 4px;
-        opacity: 0; transition: opacity 0.2s;
-      }
-      .note-controls:hover { opacity: 1; }
-      .color-dot {
-        width: 11px; height: 11px; border-radius: 50%;
-        cursor: pointer; border: 1.5px solid rgba(0,0,0,0.12);
-        transition: transform 0.15s, border-color 0.15s;
-        flex-shrink: 0;
-      }
-      .color-dot:hover { transform: scale(1.3); }
-      .color-dot.active {
-        border: 2px solid rgba(0,0,0,0.45);
-        box-shadow: 0 0 0 1px rgba(255,255,255,0.6);
-      }
-      .controls-sep {
-        width: 1px; height: 10px;
-        background: rgba(0,0,0,0.12); margin: 0 2px;
-      }
-      .opacity-slider {
-        -webkit-appearance: none; appearance: none;
-        width: 48px; height: 3px;
-        background: rgba(0,0,0,0.15); border-radius: 2px;
-        outline: none; cursor: pointer;
-      }
-      .opacity-slider::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none;
-        width: 10px; height: 10px; border-radius: 50%;
-        background: rgba(0,0,0,0.35); cursor: pointer;
-        transition: background 0.15s;
-      }
-      .opacity-slider::-webkit-slider-thumb:hover {
-        background: rgba(0,0,0,0.55);
-      }
-    `;
-    document.head.appendChild(style);
+// Update titlebar mask color (called from Swift when color changes)
+window.setNoteColor = function (color) {
+  const mask = document.getElementById('titlebar-mask');
+  if (mask) {
+    mask.style.backgroundColor = noteColorHex[color] || noteColorHex.yellow;
   }
-
-  const controls = document.createElement('div');
-  controls.className = 'note-controls';
-
-  // Color dots
-  Object.entries(NOTE_COLORS).forEach(([name, hex]) => {
-    const dot = document.createElement('div');
-    dot.className = 'color-dot' + (name === currentColor ? ' active' : '');
-    dot.style.backgroundColor = hex;
-    dot.addEventListener('click', () => {
-      sendToBridge('changeColor', { color: name });
-      controls.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
-      dot.classList.add('active');
-    });
-    controls.appendChild(dot);
-  });
-
-  // Separator
-  const sep = document.createElement('div');
-  sep.className = 'controls-sep';
-  controls.appendChild(sep);
-
-  // Opacity slider
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '20';
-  slider.max = '100';
-  slider.value = String(Math.round((currentOpacity ?? 0.95) * 100));
-  slider.className = 'opacity-slider';
-  slider.addEventListener('input', () => {
-    sendToBridge('changeOpacity', { opacity: parseInt(slider.value) / 100 });
-  });
-  controls.appendChild(slider);
-
-  document.body.appendChild(controls);
 };
+
+window.initColorPicker = window.initNoteControls;
 
 // ─── Editor initialization ─────────────────────────────────────────────────
 
@@ -951,7 +934,57 @@ window.getContent = function () {
 
 // Open search panel (called from Swift via Cmd+F menu)
 window.openSearch = function () {
-  if (editorView) openSearchPanel(editorView);
+  if (!editorView) return;
+  openSearchPanel(editorView);
+  // Remove show-replace class if present (search only)
+  setTimeout(() => {
+    const panel = document.querySelector('.cm-panel.cm-search');
+    if (panel) panel.classList.remove('show-replace');
+  }, 10);
+};
+
+// Open search panel with replace visible (Cmd+Shift+F)
+window.openSearchWithReplace = function () {
+  if (!editorView) return;
+  openSearchPanel(editorView);
+  // Add show-replace class to reveal replace inputs
+  setTimeout(() => {
+    const panel = document.querySelector('.cm-panel.cm-search');
+    if (panel) {
+      panel.classList.add('show-replace');
+      // Focus the replace input
+      const replaceInput = panel.querySelector('input[name="replace"]');
+      if (replaceInput) replaceInput.focus();
+    }
+  }, 10);
+};
+
+// Get current cursor position (character offset)
+window.getCursorPosition = function () {
+  return editorView ? editorView.state.selection.main.head : 0;
+};
+
+// Set cursor position and scroll into view
+window.setCursorPosition = function (pos) {
+  if (!editorView) return;
+  const docLength = editorView.state.doc.length;
+  const safePos = Math.min(Math.max(0, pos), docLength);
+  editorView.dispatch({
+    selection: { anchor: safePos, head: safePos },
+    scrollIntoView: true,
+  });
+};
+
+// Get current scroll position (pixels from top)
+window.getScrollTop = function () {
+  if (!editorView) return 0;
+  return editorView.scrollDOM.scrollTop;
+};
+
+// Set scroll position
+window.setScrollTop = function (top) {
+  if (!editorView) return;
+  editorView.scrollDOM.scrollTop = top;
 };
 
 // Debug: dump syntax tree nodes

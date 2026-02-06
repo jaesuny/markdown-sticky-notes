@@ -212,4 +212,37 @@ class NoteWebView: WKWebView {
             completion(result as? String)
         }
     }
+
+    // MARK: - Cursor Override for Titlebar Area
+
+    private var titlebarTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        // Remove old tracking area
+        if let existing = titlebarTrackingArea {
+            removeTrackingArea(existing)
+        }
+
+        // Add tracking area for titlebar region (top 28px)
+        let titlebarRect = NSRect(x: 0, y: bounds.height - 28, width: bounds.width, height: 28)
+        titlebarTrackingArea = NSTrackingArea(
+            rect: titlebarRect,
+            options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: ["isTitlebar": true]
+        )
+        addTrackingArea(titlebarTrackingArea!)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        // Check if we're in titlebar area
+        let localPoint = convert(event.locationInWindow, from: nil)
+        if localPoint.y > bounds.height - 28 {
+            NSCursor.arrow.set()
+        } else {
+            super.cursorUpdate(with: event)
+        }
+    }
 }

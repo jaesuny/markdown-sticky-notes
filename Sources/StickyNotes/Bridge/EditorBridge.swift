@@ -54,6 +54,11 @@ class EditorBridge: NSObject, WKScriptMessageHandler {
                 coordinator?.setNoteOpacity(noteId: noteId, opacity: opacity)
             }
 
+        case "changeAlwaysOnTop":
+            if let alwaysOnTop = body["alwaysOnTop"] as? Bool {
+                coordinator?.setNoteAlwaysOnTop(noteId: noteId, alwaysOnTop: alwaysOnTop)
+            }
+
         case "requestSave":
             handleSaveRequest()
 
@@ -87,8 +92,20 @@ class EditorBridge: NSObject, WKScriptMessageHandler {
             .replacingOccurrences(of: "\r", with: "\\r")
         webView?.evaluateJavaScript("window.setContent('\(escaped)')")
 
-        // Initialize note controls (color picker + opacity slider)
-        webView?.evaluateJavaScript("window.initColorPicker('\(note.colorTheme)', \(note.opacity))")
+        // Restore cursor position
+        if note.cursorPosition > 0 {
+            webView?.evaluateJavaScript("window.setCursorPosition(\(note.cursorPosition))")
+        }
+
+        // Restore scroll position (after a small delay to ensure content is rendered)
+        if note.scrollTop > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.webView?.evaluateJavaScript("window.setScrollTop(\(note.scrollTop))")
+            }
+        }
+
+        // Initialize note controls (color picker, opacity slider, always-on-top)
+        webView?.evaluateJavaScript("window.initNoteControls('\(note.colorTheme)', \(note.opacity), \(note.alwaysOnTop))")
     }
 
     private func handleContentChange(_ content: String) {

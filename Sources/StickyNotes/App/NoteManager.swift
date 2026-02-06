@@ -127,6 +127,26 @@ class NoteManager: ObservableObject {
         persistenceManager.saveNotesDebounced(notes)
     }
 
+    /// Update note cursor position (for restoring on reopen)
+    func updateNoteCursorPosition(_ noteId: UUID, cursorPosition: Int) {
+        guard let index = notes.firstIndex(where: { $0.id == noteId }) else { return }
+        notes[index].cursorPosition = cursorPosition
+        // Don't update modification date or trigger save — this is called during app quit
+    }
+
+    /// Update note scroll position (for restoring on reopen)
+    func updateNoteScrollTop(_ noteId: UUID, scrollTop: Double) {
+        guard let index = notes.firstIndex(where: { $0.id == noteId }) else { return }
+        notes[index].scrollTop = scrollTop
+        // Don't update modification date or trigger save — this is called during app quit
+    }
+
+    /// Update note always-on-top setting
+    func updateNoteAlwaysOnTop(_ noteId: UUID, alwaysOnTop: Bool) {
+        guard let index = notes.firstIndex(where: { $0.id == noteId }) else { return }
+        notes[index].alwaysOnTop = alwaysOnTop
+        persistenceManager.saveNotesDebounced(notes)
+    }
 
     /// Delete a note
     /// - Parameter noteId: ID of the note to delete

@@ -24,6 +24,15 @@ struct Note: Identifiable, Codable, Equatable {
     /// Color theme name (yellow, pink, blue, green, purple, orange)
     var colorTheme: String
 
+    /// Cursor position (character offset) for restoring on reopen
+    var cursorPosition: Int
+
+    /// Scroll position (pixels from top) for restoring on reopen
+    var scrollTop: Double
+
+    /// Whether this note should always stay on top of other windows
+    var alwaysOnTop: Bool
+
     /// Creation timestamp
     let createdAt: Date
 
@@ -39,6 +48,9 @@ struct Note: Identifiable, Codable, Equatable {
         isMinimized: Bool = false,
         opacity: Double = 0.95,
         colorTheme: String = "yellow",
+        cursorPosition: Int = 0,
+        scrollTop: Double = 0,
+        alwaysOnTop: Bool = false,
         createdAt: Date = Date(),
         modifiedAt: Date = Date()
     ) {
@@ -49,6 +61,9 @@ struct Note: Identifiable, Codable, Equatable {
         self.isMinimized = isMinimized
         self.opacity = opacity
         self.colorTheme = colorTheme
+        self.cursorPosition = cursorPosition
+        self.scrollTop = scrollTop
+        self.alwaysOnTop = alwaysOnTop
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
     }
@@ -62,7 +77,7 @@ struct Note: Identifiable, Codable, Equatable {
 // MARK: - Codable Conformance
 extension Note {
     enum CodingKeys: String, CodingKey {
-        case id, content, position, size, isMinimized, opacity, colorTheme, createdAt, modifiedAt
+        case id, content, position, size, isMinimized, opacity, colorTheme, cursorPosition, scrollTop, alwaysOnTop, createdAt, modifiedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -81,6 +96,9 @@ extension Note {
         isMinimized = try container.decode(Bool.self, forKey: .isMinimized)
         opacity = try container.decode(Double.self, forKey: .opacity)
         colorTheme = try container.decodeIfPresent(String.self, forKey: .colorTheme) ?? "yellow"
+        cursorPosition = try container.decodeIfPresent(Int.self, forKey: .cursorPosition) ?? 0
+        scrollTop = try container.decodeIfPresent(Double.self, forKey: .scrollTop) ?? 0
+        alwaysOnTop = try container.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
     }
@@ -101,6 +119,9 @@ extension Note {
         try container.encode(isMinimized, forKey: .isMinimized)
         try container.encode(opacity, forKey: .opacity)
         try container.encode(colorTheme, forKey: .colorTheme)
+        try container.encode(cursorPosition, forKey: .cursorPosition)
+        try container.encode(scrollTop, forKey: .scrollTop)
+        try container.encode(alwaysOnTop, forKey: .alwaysOnTop)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(modifiedAt, forKey: .modifiedAt)
     }

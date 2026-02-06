@@ -8,6 +8,9 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
 
     private var note: Note
     private weak var coordinator: AppCoordinator?
+    private var pinButton: NSButton?
+    private var colorButtons: [NoteColor: NSButton] = [:]
+    private var opacitySlider: NSSlider?
 
     // MARK: - Initialization
 
@@ -29,6 +32,7 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: panel)
 
         setupPanel(panel)
+        setupTitlebarAccessory(panel)
         setupContent()
     }
 
@@ -40,7 +44,15 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
 
     private func setupPanel(_ panel: NSPanel) {
         // Configure panel behavior
-        panel.level = .floating  // Always on top
+        panel.hidesOnDeactivate = false  // Critical: keep visible when app loses focus
+        if note.alwaysOnTop {
+            panel.level = .popUpMenu  // Level 101
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            panel.isFloatingPanel = true
+        } else {
+            panel.level = .floating
+            panel.isFloatingPanel = false
+        }
         panel.isMovableByWindowBackground = true  // Drag to move
         panel.isOpaque = false
         panel.backgroundColor = NoteColor.from(note.colorTheme).color
@@ -49,7 +61,7 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
         panel.delegate = self
 
         // Set minimum size
-        panel.minSize = NSSize(width: 200, height: 150)
+        panel.minSize = NSSize(width: 280, height: 150)
 
         // Enable vibrancy for modern macOS look
         panel.titlebarAppearsTransparent = true
@@ -61,6 +73,113 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func setupTitlebarAccessory(_ panel: NSPanel) {
+        // Remove any existing accessories first
+        while !panel.titlebarAccessoryViewControllers.isEmpty {
+            panel.removeTitlebarAccessoryViewController(at: 0)
+        }
+
+
+        // Use a custom container that shows arrow cursor instead of text cursor
+        // Order: [slider] [pin] [color dots] — pin between slider and colors
+        let container = TitlebarControlsView(frame: NSRect(x: 0, y: 0, width: 190, height: 22))
+
+        var xOffset: CGFloat = 4
+
+        // Opacity slider
+        let slider = NSSlider(frame: NSRect(x: xOffset, y: 4, width: 50, height: 14))
+        slider.minValue = 0.2
+        slider.maxValue = 1.0
+        slider.doubleValue = note.opacity
+        slider.target = self
+        slider.action = #selector(opacityChanged(_:))
+        slider.controlSize = .mini
+        slider.toolTip = "Opacity"
+        opacitySlider = slider
+        container.addSubview(slider)
+        xOffset += 58  // 50 + 8px gap
+
+        // Pin button (between slider and color dots) — subtle SF Symbol, opacity only
+        let pin = NSButton(frame: NSRect(x: xOffset, y: 2, width: 18, height: 18))
+        pin.wantsLayer = true
+        pin.bezelStyle = .regularSquare
+        pin.isBordered = false
+        pin.title = ""
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        if let img = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Pin")?
+            .withSymbolConfiguration(config) {
+            pin.image = img
+        }
+        // High contrast: active = dark, inactive = light (use alphaValue for reliability)
+        pin.contentTintColor = .labelColor
+        pin.alphaValue = note.alwaysOnTop ? 1.0 : 0.25
+        pin.imagePosition = .imageOnly
+        pin.target = self
+        pin.action = #selector(toggleAlwaysOnTop)
+        pin.toolTip = "Always on Top"
+        pinButton = pin
+        container.addSubview(pin)
+        xOffset += 26  // 18 + 8px gap
+
+        // Color dots
+        for color in NoteColor.allCases {
+            let dot = NSButton(frame: NSRect(x: xOffset, y: 5, width: 12, height: 12))
+            dot.wantsLayer = true
+            dot.layer?.cornerRadius = 6
+            dot.layer?.backgroundColor = color.color.cgColor
+            dot.layer?.borderWidth = color.rawValue == note.colorTheme ? 2 : 1
+            dot.layer?.borderColor = NSColor(white: 0, alpha: color.rawValue == note.colorTheme ? 0.4 : 0.12).cgColor
+            dot.isBordered = false
+            dot.title = ""
+            dot.target = self
+            dot.action = #selector(colorDotClicked(_:))
+            dot.toolTip = color.displayName
+            colorButtons[color] = dot
+            container.addSubview(dot)
+            xOffset += 16  // 12 + 4px gap
+        }
+
+        // Add to titlebar
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = container
+        accessory.layoutAttribute = .right
+        panel.addTitlebarAccessoryViewController(accessory)
+    }
+
+    @objc private func colorDotClicked(_ sender: NSButton) {
+        guard let color = colorButtons.first(where: { $0.value === sender })?.key else { return }
+
+        // Update appearance
+        for (c, btn) in colorButtons {
+            btn.layer?.borderWidth = c == color ? 2 : 1
+            btn.layer?.borderColor = NSColor(white: 0, alpha: c == color ? 0.4 : 0.12).cgColor
+        }
+
+        // Update note
+        note.colorTheme = color.rawValue
+        window?.backgroundColor = color.color
+        coordinator?.changeNoteColor(noteId: note.id, colorTheme: color.rawValue)
+
+        // Update titlebar mask in JS
+        webView?.evaluateJavaScript("window.setNoteColor('\(color.rawValue)')", completionHandler: nil)
+    }
+
+    @objc private func opacityChanged(_ sender: NSSlider) {
+        let opacity = sender.doubleValue
+        note.opacity = opacity
+        window?.alphaValue = CGFloat(opacity)
+        coordinator?.setNoteOpacity(noteId: note.id, opacity: opacity)
+    }
+
+    @objc private func toggleAlwaysOnTop() {
+        note.alwaysOnTop.toggle()
+        setAlwaysOnTop(note.alwaysOnTop)
+        coordinator?.setNoteAlwaysOnTop(noteId: note.id, alwaysOnTop: note.alwaysOnTop)
+
+        // Update button appearance — high contrast via alphaValue
+        pinButton?.alphaValue = note.alwaysOnTop ? 1.0 : 0.25
+    }
+
     private func setupContent() {
         guard let panel = window as? NSPanel else { return }
 
@@ -68,7 +187,20 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
         let contentView = NoteContentView(note: note, coordinator: coordinator)
         let hostingView = NSHostingView(rootView: contentView)
 
-        panel.contentView = hostingView
+        // Wrap in a container with titlebar cursor overlay
+        let contentRect = panel.contentRect(forFrameRect: panel.frame)
+        let container = NSView(frame: NSRect(origin: .zero, size: contentRect.size))
+        container.autoresizingMask = [.width, .height]
+        hostingView.frame = container.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        container.addSubview(hostingView)
+
+        // Add invisible overlay on titlebar area (top 28px) for arrow cursor
+        let titlebarOverlay = TitlebarCursorView(frame: NSRect(x: 0, y: contentRect.height - 28, width: contentRect.width, height: 28))
+        titlebarOverlay.autoresizingMask = [.width, .minYMargin]
+        container.addSubview(titlebarOverlay)
+
+        panel.contentView = container
     }
 
     // MARK: - NSWindowDelegate Methods
@@ -148,6 +280,24 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
         window?.backgroundColor = NoteColor.from(theme).color
     }
 
+    /// Update always-on-top setting
+    func setAlwaysOnTop(_ alwaysOnTop: Bool) {
+        note.alwaysOnTop = alwaysOnTop
+        guard let panel = window as? NSPanel else { return }
+
+        if alwaysOnTop {
+            // Key settings for true always-on-top
+            panel.level = .popUpMenu  // Level 101, above most windows
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            panel.isFloatingPanel = true
+            panel.orderFrontRegardless()  // Force to front
+        } else {
+            panel.level = .floating
+            panel.collectionBehavior = [.managed]
+            panel.isFloatingPanel = false
+        }
+    }
+
     /// Get note ID
     var noteId: UUID { note.id }
 
@@ -162,5 +312,50 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
             if let found = findWebView(in: sub) { return found }
         }
         return nil
+    }
+}
+
+// MARK: - Titlebar Views
+
+/// Custom view that shows arrow cursor instead of I-beam text cursor
+private class TitlebarControlsView: NSView {
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
+    }
+}
+
+/// Transparent overlay for titlebar area that sets arrow cursor but forwards mouse events
+private class TitlebarCursorView: NSView {
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .cursorUpdate, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea!)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.arrow.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Forward to next responder (traffic lights, titlebar drag)
+        nextResponder?.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        nextResponder?.mouseUp(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        nextResponder?.mouseDragged(with: event)
     }
 }
