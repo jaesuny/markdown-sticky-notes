@@ -99,11 +99,14 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 17. **NSPanel 최소 크기**: traffic lights (~70px) + `NSTitlebarAccessoryViewController` 너비 합산 + 여유분. 예: 슬라이더(50) + 핀(18) + 색깔점(12×6) = 약 190px → 최소 너비 280px
 18. **검색 패널 버튼/체크박스 타겟팅**: `button[name="select"]` (All), `button[name="replace"]`, `input[name="re"]` (regexp), `input[name="word"]`, `input[name="case"]`. CSS `:has()` 셀렉터로 부모 label 선택: `label:has(input[name="re"])`
 19. **검색 Replace 토글 패턴**: CSS로 replace 요소 기본 숨김, `.show-replace` 클래스로 표시. JS에서 `panel.classList.add('show-replace')` 토글. Cmd+F vs Cmd+Shift+F 분리 구현
+20. **Syntax Highlighting codeLanguages**: `markdown({ codeLanguages: fn })`의 함수는 `Language` 객체 반환 필요. `javascript()` 등은 `LanguageSupport` 반환하므로 `.language` 속성 사용: `return langSupport.language`
+21. **언어 패키지 정적 import**: `@codemirror/language-data`는 동적 import로 청크 생성 → WKWebView 불가. `@codemirror/lang-javascript` 등 개별 패키지 직접 import
+22. **마커 숨기기 (Obsidian 스타일)**: ViewPlugin에서 커서 라인에 `cm-cursor-line` 클래스 추가, CSS로 `.cm-md-marker { font-size: 0; opacity: 0 }` + `.cm-cursor-line .cm-md-marker { font-size: inherit; opacity: 0.35 }`. 대상: `HeaderMark`, `EmphasisMark`, `QuoteMark`, `CodeMark`, `CodeInfo`
 
 ## Lezer Markdown Node Names
 
 에디터에서 사용하는 syntax tree 노드:
-`ATXHeading1`~`6`, `HeaderMark`, `StrongEmphasis`, `Emphasis`, `EmphasisMark`, `InlineCode`, `CodeMark`, `FencedCode`, `Link`, `LinkMark`, `URL`, `Blockquote`, `QuoteMark`, `HorizontalRule`, `BulletList`, `OrderedList`, `ListItem`, `ListMark`, `Strikethrough`, `StrikethroughMark`, `Table`, `TableHeader`, `TableRow`, `TableCell`, `TableDelimiter`, `Task`, `TaskMarker`
+`ATXHeading1`~`6`, `HeaderMark`, `StrongEmphasis`, `Emphasis`, `EmphasisMark`, `InlineCode`, `CodeMark`, `CodeInfo`, `FencedCode`, `Link`, `LinkMark`, `URL`, `Blockquote`, `QuoteMark`, `HorizontalRule`, `BulletList`, `OrderedList`, `ListItem`, `ListMark`, `Strikethrough`, `StrikethroughMark`, `Table`, `TableHeader`, `TableRow`, `TableCell`, `TableDelimiter`, `Task`, `TaskMarker`
 
 ## Known Issues (미해결)
 
