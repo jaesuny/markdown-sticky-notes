@@ -106,6 +106,10 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 24. **CSS `color: transparent` 상속**: 부모에 설정하면 자식도 투명해짐. 위젯 내용을 보이게 하려면 `.overlay *: { color: inherit !important }`, 단 source line 자식은 `.source-line > *:not(.overlay) { color: transparent !important }`로 구체적 선택
 25. **EditorView.theme() 스코프 한계**: 테마 CSS는 `.cm-editor` 내부에서만 적용됨. 오프스크린 측정 시 테마 스타일(padding 등)이 적용 안됨 → inline style로 직접 설정 필요
 26. **HR/단일라인 Overlay 패턴**: 블록 수식과 동일 원리. `HorizontalRule` 등 단일 라인도 CSS `line-height`만으로는 클릭 좌표 계산에 영향 없음 — `Decoration.line({ attributes: { style: 'height:16px;line-height:16px' } })` + `Decoration.widget()` 오버레이 조합 필요
+27. **Block 요소 애니메이션 (수식/HR)**: Overlay 패턴에서 애니메이션 추가: (1) 소스 라인에 `color: transparent` + `transition`, (2) 위젯에 `opacity` + `transition`, (3) 커서 진입 시 `cm-*-editing` 클래스 토글로 소스 visible/위젯 fade out. `cursorInside()` 체크 후 데코레이션 제거 대신 클래스만 변경
+28. **CSS 텍스트 노드 타겟 불가**: CodeMirror가 텍스트를 `<span>` 없이 직접 텍스트 노드로 렌더링하는 경우 있음. CSS는 텍스트 노드 선택 불가 → 부모 `.cm-line`에 `color: transparent` 적용하고 위젯에서 `color: #000 !important`로 오버라이드
+29. **Inline 요소 애니메이션 한계**: `Decoration.replace()`는 소스를 DOM에서 제거 → crossfade 불가. `mark + widget` 조합은 sibling으로 배치되어 둘 다 공간 차지 → line-height 증가. `font-size: 0`도 레이아웃에 영향. Block은 `position: absolute` overlay 가능하지만 inline은 텍스트 흐름 때문에 불가. **현재 결론: inline math는 애니메이션 없이 즉시 전환**
+30. **EditorView.theme()에서 @keyframes 미지원**: `style-mod` 라이브러리 기반이라 `@keyframes` 정의 불가 — `document.head.appendChild(style)`로 별도 `<style>` 요소에 keyframes 주입, theme에서는 `animation` 속성만 참조
 
 ## Lezer Markdown Node Names
 
@@ -116,6 +120,7 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 
 - ~~**Task list `-` 마커 숨기기**~~: 해결됨 — TaskMarker의 `Decoration.replace()` 범위를 `- [x]` 전체로 확장. 이전 실패 원인은 앱 미재시작 (WKWebView 캐시)
 - **수식/테이블 블록 주변 커서 이동**: 렌더된 수식 블록($$...$$)과 테이블 주변에서 화살표 키가 macOS 네이티브와 다르게 동작. 노트 끝에서 위/아래 화살표 반복 시 커서가 문서 맨 처음으로 점프하는 버그 있음. `blockMathNavKeymap` 개선 필요
+- **Inline math 애니메이션**: 현재 즉시 전환 (crossfade 불가). 시도한 접근법: (1) `mark+widget` → sibling이라 둘 다 공간 차지, (2) `font-size:0` → 여전히 레이아웃 영향, (3) `position:absolute` → inline에서 텍스트 흐름 깨짐. **향후 가능한 접근법**: (a) 전환 시 배경 flash/pulse로 시각적 피드백, (b) Web Animations API로 DOM 변경 시 프로그래매틱 애니메이션, (c) FLIP 기법 (First-Last-Invert-Play), (d) 커스텀 플러그인으로 CodeMirror 외부에서 DOM 직접 관리
 - ~~**수식 블록 아래 클릭 시 커서 위치 밀림**~~: 해결됨 — Overlay 접근법: `Decoration.replace()` 대신 원본 줄에 `line-height` 조정 + `color: transparent`, 위젯은 `position: absolute`로 오버레이. 원본 줄 높이 = 위젯 높이로 맞춰서 클릭 좌표 정확
 - ~~**HR (---) 아래 클릭 시 커서 위치 밀림**~~: 해결됨 — 블록 수식과 동일한 overlay 패턴 적용. CSS `line-height`/`height`만으로는 CodeMirror 좌표 계산에 영향 없음, `Decoration.line()` + `Decoration.widget()` 조합 필요
 - ~~**헤딩 밑줄 제거 안됨**~~: 해결됨 — `Decoration.line()`은 `.cm-line`에 적용되지만, `defaultHighlightStyle`의 `t.heading` 밑줄은 내부 `<span>`에 적용됨. `markdownHighlightStyle`에서 `{ tag: t.heading, textDecoration: 'none' }` 추가로 해결

@@ -422,28 +422,29 @@ function buildMarkdownDecos(view) {
             break;
           }
 
-          // ── Horizontal Rule (overlay approach for accurate click coords) ───
-          case 'HorizontalRule':
-            if (!cursorInside(node.from, node.to)) {
-              const lineStart = view.state.doc.lineAt(node.from).from;
-              // Source line: fixed height + transparent text
-              builder.push(
-                Decoration.line({
-                  attributes: {
-                    class: 'cm-hr-source-line',
-                    style: 'height:16px;line-height:16px;',
-                  },
-                }).range(lineStart)
-              );
-              // Overlay widget: positioned absolute, visual HR
-              builder.push(
-                Decoration.widget({
-                  widget: new HROverlayWidget(),
-                  side: -1,
-                }).range(lineStart)
-              );
-            }
+          // ── Horizontal Rule (overlay with animation) ───
+          case 'HorizontalRule': {
+            const lineStart = view.state.doc.lineAt(node.from).from;
+            const isEditing = cursorInside(node.from, node.to);
+            const hrClass = isEditing ? 'cm-hr-source-line cm-hr-editing' : 'cm-hr-source-line';
+            // Source line: fixed height, toggle editing class
+            builder.push(
+              Decoration.line({
+                attributes: {
+                  class: hrClass,
+                  style: 'height:16px;line-height:16px;',
+                },
+              }).range(lineStart)
+            );
+            // Overlay widget: positioned absolute, visual HR
+            builder.push(
+              Decoration.widget({
+                widget: new HROverlayWidget(),
+                side: -1,
+              }).range(lineStart)
+            );
             break;
+          }
 
           // ── Strikethrough ───────────────────────────────────
           case 'Strikethrough':
@@ -561,29 +562,31 @@ function buildMathDecorations(state) {
   }
 
   // 1. Block math: $$...$$  (multiline ok)
-  // New approach: overlay widget over source lines with adjusted line-height
+  // Overlay approach with animation: always render, toggle class for cursor state
   const blockRe = /\$\$[\s\S]*?\$\$/g;
   while ((match = blockRe.exec(text)) !== null) {
     if (isInsideCode(match.index, codeRanges)) continue;
     const mFrom = match.index, mTo = mFrom + match[0].length;
-    if (cursorInside(mFrom, mTo)) continue; // show raw source
     const formula = match[0].slice(2, -2).trim();
     if (!formula || KOREAN_RE.test(formula)) continue;
 
+    const isEditing = cursorInside(mFrom, mTo);
     const widgetHeight = measureMathHeight(formula, true);
     const startLine = state.doc.lineAt(mFrom);
     const endLine = state.doc.lineAt(mTo);
     const lineCount = endLine.number - startLine.number + 1;
     const lineHeight = Math.ceil(widgetHeight / lineCount);
 
-    // Add line decorations: hide text + adjust line-height
+    // Add line decorations: adjust line-height, toggle editing class
+    const baseClass = 'cm-math-source-line';
+    const lineClass = isEditing ? `${baseClass} cm-math-editing` : baseClass;
     for (let i = startLine.number; i <= endLine.number; i++) {
       const line = state.doc.line(i);
       widgets.push(
         Decoration.line({
           attributes: {
-            style: `line-height:${lineHeight}px;height:${lineHeight}px;color:transparent;`,
-            class: 'cm-math-source-line',
+            style: `line-height:${lineHeight}px;height:${lineHeight}px;`,
+            class: lineClass,
           },
         }).range(line.from)
       );
@@ -599,6 +602,7 @@ function buildMathDecorations(state) {
   }
 
   // 2. Inline math: $...$  (single line, not $$)
+  // Use Decoration.replace() - true crossfade not possible for inline elements
   const inlineRe = /(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g;
   while ((match = inlineRe.exec(text)) !== null) {
     if (isInsideCode(match.index, codeRanges)) continue;
@@ -844,12 +848,13 @@ const editorTheme = EditorView.theme({
     color: '#656d76',
   },
 
-  // ── Horizontal Rule (overlay approach) ─────────────────
+  // ── Horizontal Rule (overlay with animation — slower) ─────────────────
   '.cm-hr-source-line': {
     position: 'relative',
   },
   '.cm-hr-source-line > *:not(.cm-hr-overlay)': {
-    color: 'transparent !important',
+    opacity: '0',
+    transition: 'opacity 0.3s ease-out',
   },
   '.cm-hr-overlay': {
     position: 'absolute',
@@ -861,6 +866,15 @@ const editorTheme = EditorView.theme({
     backgroundColor: '#d0d7de',
     borderRadius: '1px',
     pointerEvents: 'none',
+    opacity: '1',
+    transition: 'opacity 0.3s ease-out',
+  },
+  // Editing state: show source, hide overlay
+  '.cm-hr-source-line.cm-hr-editing > *:not(.cm-hr-overlay)': {
+    opacity: '1',
+  },
+  '.cm-hr-source-line.cm-hr-editing .cm-hr-overlay': {
+    opacity: '0',
   },
 
   // ── URL (hidden when cursor not on line) ──────────────
@@ -908,24 +922,23 @@ const editorTheme = EditorView.theme({
     zIndex: '10',
     boxSizing: 'border-box',
     color: '#000 !important', // Override inherited transparent color
+    opacity: '1',
+    transition: 'opacity 0.15s ease-out',
   },
   '.cm-math-overlay *': {
     color: 'inherit !important', // Ensure KaTeX content is visible
   },
   '.cm-line.cm-math-source-line': {
     position: 'relative', // For overlay positioning context
+    color: 'transparent', // Hide text nodes (CSS can't target text nodes directly)
+    transition: 'color 0.2s ease-out',
   },
-  // First source line needs to be the positioning context
-  '.cm-line.cm-math-source-line:has(.cm-math-overlay)': {
-    position: 'relative',
+  // Editing state: show source text, hide overlay
+  '.cm-line.cm-math-source-line.cm-math-editing': {
+    color: 'inherit',
   },
-  // Hide all text inside source lines (including syntax-highlighted spans)
-  // But NOT the overlay widget content
-  '.cm-line.cm-math-source-line > *:not(.cm-math-overlay)': {
-    color: 'transparent !important',
-  },
-  '.cm-line.cm-math-source-line > span': {
-    color: 'transparent !important',
+  '.cm-line.cm-math-source-line.cm-math-editing .cm-math-overlay': {
+    opacity: '0',
   },
 
   // ── Strikethrough ──────────────────────────────────────
