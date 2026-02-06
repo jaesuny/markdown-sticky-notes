@@ -237,6 +237,25 @@ class InlineCodeWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+// Overlay widget for HR - thin line positioned absolute over source
+class HROverlayWidget extends WidgetType {
+  constructor() {
+    super();
+  }
+
+  eq(other) {
+    return true; // All HRs are visually equivalent
+  }
+
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-hr-overlay';
+    return wrap;
+  }
+
+  ignoreEvent() { return false; }
+}
+
 class TaskCheckboxWidget extends WidgetType {
   constructor(checked, pos) {
     super();
@@ -403,10 +422,26 @@ function buildMarkdownDecos(view) {
             break;
           }
 
-          // ── Horizontal Rule (unfold when cursor on line) ───
+          // ── Horizontal Rule (overlay approach for accurate click coords) ───
           case 'HorizontalRule':
             if (!cursorInside(node.from, node.to)) {
-              addLineDeco(node.from, 'cm-md-hr');
+              const lineStart = view.state.doc.lineAt(node.from).from;
+              // Source line: fixed height + transparent text
+              builder.push(
+                Decoration.line({
+                  attributes: {
+                    class: 'cm-hr-source-line',
+                    style: 'height:16px;line-height:16px;',
+                  },
+                }).range(lineStart)
+              );
+              // Overlay widget: positioned absolute, visual HR
+              builder.push(
+                Decoration.widget({
+                  widget: new HROverlayWidget(),
+                  side: -1,
+                }).range(lineStart)
+              );
             }
             break;
 
@@ -809,13 +844,23 @@ const editorTheme = EditorView.theme({
     color: '#656d76',
   },
 
-  // ── Horizontal Rule ───────────────────────────────────
-  '.cm-md-hr': {
-    borderBottom: '2px solid #d0d7de',
-    color: 'transparent',
-    height: '0',
-    overflow: 'hidden',
-    margin: '8px 0',
+  // ── Horizontal Rule (overlay approach) ─────────────────
+  '.cm-hr-source-line': {
+    position: 'relative',
+  },
+  '.cm-hr-source-line > *:not(.cm-hr-overlay)': {
+    color: 'transparent !important',
+  },
+  '.cm-hr-overlay': {
+    position: 'absolute',
+    left: '0',
+    right: '0',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    height: '2px',
+    backgroundColor: '#d0d7de',
+    borderRadius: '1px',
+    pointerEvents: 'none',
   },
 
   // ── URL (hidden when cursor not on line) ──────────────
