@@ -48,7 +48,7 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Sticky Notes</string>
+    <string>MD Sticky Notes</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
