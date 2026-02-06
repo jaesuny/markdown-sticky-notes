@@ -20,9 +20,11 @@ class NoteManager: ObservableObject {
 
     // MARK: - Public Methods
 
-    /// Load notes from persistence
+    /// Load notes from persistence, filtering out empty notes
     func loadNotes() {
-        notes = persistenceManager.loadNotes()
+        notes = persistenceManager.loadNotes().filter {
+            !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
 
         // If no notes exist, create a default welcome note
         if notes.isEmpty {
@@ -34,18 +36,14 @@ class NoteManager: ObservableObject {
     /// - Parameter content: Initial content for the note
     /// - Returns: The newly created note
     @discardableResult
-    func createNote(content: String = "") -> Note {
-        // Calculate position offset from last note
-        let offset: CGFloat = 30
-        let lastPosition = notes.last?.position ?? CGPoint(x: 100, y: 100)
-        let newPosition = CGPoint(
-            x: lastPosition.x + offset,
-            y: lastPosition.y + offset
-        )
+    func createNote(content: String = "", position: CGPoint = CGPoint(x: 100, y: 100)) -> Note {
+        let colors = NoteColor.allCases
+        let colorTheme = colors[notes.count % colors.count].rawValue
 
         let note = Note(
             content: content,
-            position: newPosition
+            position: position,
+            colorTheme: colorTheme
         )
 
         notes.append(note)
@@ -120,6 +118,15 @@ class NoteManager: ObservableObject {
         notes[index].updateModificationDate()
         persistenceManager.saveNotesDebounced(notes)
     }
+
+    /// Update note color theme
+    func updateNoteColor(_ noteId: UUID, colorTheme: String) {
+        guard let index = notes.firstIndex(where: { $0.id == noteId }) else { return }
+        notes[index].colorTheme = colorTheme
+        notes[index].updateModificationDate()
+        persistenceManager.saveNotesDebounced(notes)
+    }
+
 
     /// Delete a note
     /// - Parameter noteId: ID of the note to delete

@@ -7,6 +7,7 @@ class EditorBridge: NSObject, WKScriptMessageHandler {
 
     private let noteId: UUID
     private weak var coordinator: AppCoordinator?
+    weak var webView: WKWebView?
 
     // MARK: - Initialization
 
@@ -43,6 +44,16 @@ class EditorBridge: NSObject, WKScriptMessageHandler {
                 handleContentChange(content)
             }
 
+        case "changeColor":
+            if let color = body["color"] as? String {
+                coordinator?.changeNoteColor(noteId: noteId, colorTheme: color)
+            }
+
+        case "changeOpacity":
+            if let opacity = body["opacity"] as? Double {
+                coordinator?.setNoteOpacity(noteId: noteId, opacity: opacity)
+            }
+
         case "requestSave":
             handleSaveRequest()
 
@@ -66,17 +77,25 @@ class EditorBridge: NSObject, WKScriptMessageHandler {
     private func handleEditorReady() {
         print("[EditorBridge] Editor ready for note: \(noteId)")
 
-        // Could send initial configuration here
-        // For example: theme, font size, etc.
+        guard let note = coordinator?.noteManager.getNote(noteId) else { return }
+
+        // Load initial content
+        let escaped = note.content
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        webView?.evaluateJavaScript("window.setContent('\(escaped)')")
+
+        // Initialize note controls (color picker + opacity slider)
+        webView?.evaluateJavaScript("window.initColorPicker('\(note.colorTheme)', \(note.opacity))")
     }
 
     private func handleContentChange(_ content: String) {
-        // Notify coordinator of content change
         coordinator?.handleContentChange(noteId: noteId, content: content)
     }
 
     private func handleSaveRequest() {
-        // Handle explicit save request from editor
         if let note = coordinator?.noteManager.getNote(noteId) {
             coordinator?.noteManager.saveNoteImmediately(note)
         }

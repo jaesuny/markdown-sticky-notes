@@ -61,6 +61,11 @@ class WindowManager: ObservableObject {
         Set(windowControllers.keys)
     }
 
+    /// Find which note a given NSWindow belongs to
+    func noteId(for window: NSWindow) -> UUID? {
+        windowControllers.first(where: { $0.value.window === window })?.key
+    }
+
     /// Close all windows
     func closeAllWindows() {
         for (noteId, _) in windowControllers {

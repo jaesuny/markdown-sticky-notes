@@ -21,6 +21,9 @@ struct Note: Identifiable, Codable, Equatable {
     /// Window opacity (0.0 to 1.0)
     var opacity: Double
 
+    /// Color theme name (yellow, pink, blue, green, purple, orange)
+    var colorTheme: String
+
     /// Creation timestamp
     let createdAt: Date
 
@@ -35,6 +38,7 @@ struct Note: Identifiable, Codable, Equatable {
         size: CGSize = CGSize(width: 400, height: 500),
         isMinimized: Bool = false,
         opacity: Double = 0.95,
+        colorTheme: String = "yellow",
         createdAt: Date = Date(),
         modifiedAt: Date = Date()
     ) {
@@ -44,6 +48,7 @@ struct Note: Identifiable, Codable, Equatable {
         self.size = size
         self.isMinimized = isMinimized
         self.opacity = opacity
+        self.colorTheme = colorTheme
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
     }
@@ -57,7 +62,7 @@ struct Note: Identifiable, Codable, Equatable {
 // MARK: - Codable Conformance
 extension Note {
     enum CodingKeys: String, CodingKey {
-        case id, content, position, size, isMinimized, opacity, createdAt, modifiedAt
+        case id, content, position, size, isMinimized, opacity, colorTheme, createdAt, modifiedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -75,6 +80,7 @@ extension Note {
 
         isMinimized = try container.decode(Bool.self, forKey: .isMinimized)
         opacity = try container.decode(Double.self, forKey: .opacity)
+        colorTheme = try container.decodeIfPresent(String.self, forKey: .colorTheme) ?? "yellow"
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
     }
@@ -94,6 +100,7 @@ extension Note {
 
         try container.encode(isMinimized, forKey: .isMinimized)
         try container.encode(opacity, forKey: .opacity)
+        try container.encode(colorTheme, forKey: .colorTheme)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(modifiedAt, forKey: .modifiedAt)
     }

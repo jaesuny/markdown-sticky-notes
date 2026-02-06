@@ -10,6 +10,7 @@ echo "Building StickyNotes.app..."
 echo "Building web editor..."
 cd editor-web
 npm run build
+cp dist/editor.bundle.js ../Sources/StickyNotes/Resources/Editor/editor.bundle.js
 cd ..
 echo "✅ Web editor built"
 

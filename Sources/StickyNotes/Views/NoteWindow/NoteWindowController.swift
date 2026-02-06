@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
+import WebKit
 
 /// Window controller for a single note window
 class NoteWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Properties
 
-    private let note: Note
+    private var note: Note
     private weak var coordinator: AppCoordinator?
 
     // MARK: - Initialization
@@ -20,7 +21,7 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
                 origin: note.position,
                 size: note.size
             ),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -42,7 +43,7 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
         panel.level = .floating  // Always on top
         panel.isMovableByWindowBackground = true  // Drag to move
         panel.isOpaque = false
-        panel.backgroundColor = .clear
+        panel.backgroundColor = NoteColor.from(note.colorTheme).color
         panel.alphaValue = CGFloat(note.opacity)
         panel.title = "Sticky Note"
         panel.delegate = self
@@ -71,6 +72,27 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: - NSWindowDelegate Methods
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let coordinator = coordinator else { return true }
+        if coordinator.isQuitting { return true }
+
+        // Empty note → close silently
+        guard let current = coordinator.noteManager.getNote(note.id),
+              !current.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return true
+        }
+
+        // Note has content → confirm deletion
+        let alert = NSAlert()
+        alert.messageText = "Delete this note?"
+        alert.informativeText = "This note has content that will be lost."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 
     func windowWillClose(_ notification: Notification) {
         // Notify coordinator that window is closing
@@ -116,8 +138,29 @@ class NoteWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Public Methods
 
     /// Update window opacity
-    /// - Parameter opacity: New opacity value (0.0 to 1.0)
     func setOpacity(_ opacity: Double) {
         window?.alphaValue = CGFloat(opacity)
+    }
+
+    /// Update window color theme
+    func setColorTheme(_ theme: String) {
+        note.colorTheme = theme
+        window?.backgroundColor = NoteColor.from(theme).color
+    }
+
+    /// Get note ID
+    var noteId: UUID { note.id }
+
+    /// Find the WKWebView in the window's view hierarchy
+    var webView: WKWebView? {
+        findWebView(in: window?.contentView)
+    }
+
+    private func findWebView(in view: NSView?) -> WKWebView? {
+        if let wk = view as? WKWebView { return wk }
+        for sub in view?.subviews ?? [] {
+            if let found = findWebView(in: sub) { return found }
+        }
+        return nil
     }
 }

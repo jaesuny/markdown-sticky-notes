@@ -27,6 +27,7 @@ class NoteWebView: WKWebView {
 
         // Set up bridge
         self.bridge = EditorBridge(noteId: note.id, coordinator: coordinator)
+        bridge!.webView = self
         userContentController.add(bridge!, name: "bridge")
 
         // Inject console.log interceptor
