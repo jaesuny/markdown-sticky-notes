@@ -60,7 +60,7 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2024</string>
+    <string>Copyright © 2025</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
@@ -69,6 +69,11 @@ EOF
 
 # Create PkgInfo
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
+
+# Ad-hoc code signing (allows "right-click → Open" instead of "damaged" error)
+echo "Signing app..."
+codesign --force --deep --sign - "$APP_DIR"
+echo "✅ App signed (ad-hoc)"
 
 echo "✅ StickyNotes.app created successfully at: $APP_DIR"
 echo "To run: open $APP_DIR"
