@@ -33,7 +33,7 @@ A native macOS sticky note app with Obsidian-style markdown live preview, built 
 ## Installation
 
 ### Download
-1. Download `StickyNotes.app.zip` from [Releases](https://github.com/jaesuny/markdown-sticky-notes/releases)
+1. Download [`StickyNotes.zip`](https://github.com/jaesuny/markdown-sticky-notes/releases/download/v1.0.0/StickyNotes.zip)
 2. Unzip and move to Applications
 3. **First launch**: Right-click the app → "Open" → Click "Open" in the dialog
 
