@@ -55,7 +55,7 @@ open build/StickyNotes.app
 
 ## Screenshots
 
-*Coming soon*
+<img src="assets/screenshot.png" alt="MD Sticky Notes" width="360">
 
 ## Technical Details
 
