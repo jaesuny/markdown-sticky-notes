@@ -33,7 +33,7 @@ A native macOS sticky note app with Obsidian-style markdown live preview, built 
 ## Installation
 
 ### Download
-1. Download [`MDStickyNotes.dmg`](https://github.com/jaesuny/markdown-sticky-notes/releases/download/v1.0.0/MDStickyNotes.dmg)
+1. Download [`MDStickyNotes.dmg`](https://github.com/jaesuny/markdown-sticky-notes/releases/download/v1.0.1/MDStickyNotes.dmg)
 2. Open the DMG and drag the app to Applications
 3. **First launch** — macOS will block the app since it is not notarized. To allow it:
    1. Double-click the app — macOS will show a warning and block it
@@ -62,7 +62,7 @@ open build/StickyNotes.app
 
 ## Demo
 
-https://github.com/user-attachments/assets/88adb02c-e1df-4e71-a5f7-49f2c731b5ab
+https://github.com/user-attachments/assets/c3dce235-9c50-4cee-832d-267e0e5f8024
 
 ## Screenshots
 
