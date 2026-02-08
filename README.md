@@ -32,7 +32,15 @@ A native macOS sticky note app with Obsidian-style markdown live preview, built 
 
 ## Installation
 
-### Download
+### Homebrew (Recommended)
+```bash
+brew tap jaesuny/tap
+brew install --cask md-sticky-notes
+```
+
+### Manual Download
+If you don't use Homebrew, you can download the DMG directly. Note that manual installation requires extra steps to bypass macOS Gatekeeper.
+
 1. Download [`MDStickyNotes.dmg`](https://github.com/jaesuny/markdown-sticky-notes/releases/download/v1.0.1/MDStickyNotes.dmg)
 2. Open the DMG and drag the app to Applications
 3. **First launch** — macOS will block the app since it is not notarized. To allow it:
