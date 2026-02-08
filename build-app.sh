@@ -57,6 +57,8 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
