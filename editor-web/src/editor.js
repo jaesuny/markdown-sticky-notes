@@ -142,6 +142,7 @@ function measureMathHeight(formula, isBlock) {
     katex.render(formula, temp, {
       throwOnError: false,
       displayMode: isBlock,
+      strict: false,
     });
   } catch (e) {
     temp.textContent = formula;
@@ -177,6 +178,7 @@ class MathWidget extends WidgetType {
       katex.render(this.formula, wrap, {
         throwOnError: false,
         displayMode: this.isBlock,
+        strict: false,
       });
     } catch (e) {
       wrap.textContent = this.formula;
@@ -208,8 +210,10 @@ class MathOverlayWidget extends WidgetType {
       katex.render(this.formula, wrap, {
         throwOnError: false,
         displayMode: true,
+        strict: false,
       });
     } catch (e) {
+      console.warn('[KaTeX block error]', e.message, '\nFormula:', JSON.stringify(this.formula));
       wrap.textContent = this.formula;
       wrap.className += ' cm-math-error';
     }
@@ -374,7 +378,21 @@ function buildMarkdownDecos(view) {
             break;
 
           // ── Markers (hidden when cursor not on line) ──────
-          case 'HeaderMark':
+          case 'HeaderMark': {
+            const hLine = view.state.doc.lineAt(node.from);
+            if (node.from === hLine.from) {
+              // Opening # marks — hide when cursor not on line
+              builder.push(
+                Decoration.mark({ class: 'cm-md-marker' }).range(node.from, node.to)
+              );
+            } else {
+              // Trailing # marks — inherit heading text color
+              builder.push(
+                Decoration.mark({ class: 'cm-md-marker-trailing' }).range(node.from, node.to)
+              );
+            }
+            break;
+          }
           case 'EmphasisMark':
           case 'QuoteMark':
           case 'CodeMark':  // ``` fenced code markers
@@ -593,7 +611,6 @@ const markdownDecoPlugin = ViewPlugin.fromClass(
 // multiple lines, and only StateField can do multiline Decoration.replace().
 // Also uses the syntax tree to avoid matching $ inside code blocks.
 
-const KOREAN_RE = /[ㄱ-ㅎㅏ-ㅣ가-힣]/;
 
 function collectCodeRanges(state) {
   const ranges = [];
@@ -629,14 +646,17 @@ function buildMathDecorations(state) {
     if (isInsideCode(match.index, codeRanges)) continue;
     const mFrom = match.index, mTo = mFrom + match[0].length;
     const formula = match[0].slice(2, -2).trim();
-    if (!formula || KOREAN_RE.test(formula)) continue;
+    if (!formula) continue;
 
     const isEditing = cursorInside(mFrom, mTo);
-    const widgetHeight = measureMathHeight(formula, true);
+    const measuredHeight = measureMathHeight(formula, true);
     const startLine = state.doc.lineAt(mFrom);
     const endLine = state.doc.lineAt(mTo);
     const lineCount = endLine.number - startLine.number + 1;
-    const lineHeight = Math.ceil(widgetHeight / lineCount);
+    // Ensure minimum line height (prevent compression with many source lines)
+    const minLineHeight = 22;
+    const lineHeight = Math.max(Math.ceil(measuredHeight / lineCount), minLineHeight);
+    const totalHeight = lineHeight * lineCount;
 
     // Add line decorations: adjust line-height, toggle editing class
     const baseClass = 'cm-math-source-line';
@@ -656,7 +676,7 @@ function buildMathDecorations(state) {
     // Add overlay widget at first line (inline widget with absolute positioning)
     widgets.push(
       Decoration.widget({
-        widget: new MathOverlayWidget(formula, widgetHeight),
+        widget: new MathOverlayWidget(formula, totalHeight),
         side: -1, // Before line content
       }).range(startLine.from)
     );
@@ -670,7 +690,7 @@ function buildMathDecorations(state) {
     const mFrom = match.index, mTo = mFrom + match[0].length;
     if (cursorInside(mFrom, mTo)) continue; // show raw source
     const formula = match[1].trim();
-    if (!formula || KOREAN_RE.test(formula)) continue;
+    if (!formula) continue;
     const height = measureMathHeight(formula, false);
     widgets.push(
       Decoration.replace({
@@ -853,6 +873,9 @@ const editorTheme = EditorView.theme({
     fontSize: 'inherit',
     opacity: '0.35',
   },
+  '.cm-md-marker-trailing, .cm-md-marker-trailing *': {
+    color: 'inherit !important',
+  },
 
   // ── Bold / Italic ─────────────────────────────────────
   '.cm-md-bold': { fontWeight: '700' },
@@ -977,7 +1000,9 @@ const editorTheme = EditorView.theme({
     backgroundColor: 'rgba(92, 106, 196, 0.05)',
     padding: '8px',
     borderRadius: '8px',
-    display: 'block',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
     pointerEvents: 'none', // Allow clicks to pass through to source lines
     zIndex: '10',
@@ -994,9 +1019,20 @@ const editorTheme = EditorView.theme({
     color: 'transparent', // Hide text nodes (CSS can't target text nodes directly)
     transition: 'color 0.2s ease-out',
   },
+  // Force all syntax-highlighted spans transparent (they have explicit colors that override inherited transparent)
+  '.cm-line.cm-math-source-line *': {
+    color: 'transparent !important',
+  },
+  // But keep overlay and its children visible
+  '.cm-line.cm-math-source-line .cm-math-overlay, .cm-line.cm-math-source-line .cm-math-overlay *': {
+    color: '#000 !important',
+  },
   // Editing state: show source text, hide overlay
   '.cm-line.cm-math-source-line.cm-math-editing': {
     color: 'inherit',
+  },
+  '.cm-line.cm-math-source-line.cm-math-editing *': {
+    color: 'inherit !important',
   },
   '.cm-line.cm-math-source-line.cm-math-editing .cm-math-overlay': {
     opacity: '0',
