@@ -60,6 +60,10 @@ cd editor-web && npm install && cd ..
 open build/StickyNotes.app
 ```
 
+## Demo
+
+<video src="https://github.com/jaesuny/markdown-sticky-notes/raw/main/assets/demo.mp4" controls="controls" style="max-width: 100%;"></video>
+
 ## Screenshots
 
 <img src="assets/screenshot.png" alt="MD Sticky Notes" width="360">
