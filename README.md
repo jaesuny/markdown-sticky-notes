@@ -62,7 +62,7 @@ open build/StickyNotes.app
 
 ## Demo
 
-<video src="https://github.com/jaesuny/markdown-sticky-notes/raw/main/assets/demo.mp4" controls="controls" style="max-width: 100%;"></video>
+https://github.com/user-attachments/assets/88adb02c-e1df-4e71-a5f7-49f2c731b5ab
 
 ## Screenshots
 
