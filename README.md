@@ -41,7 +41,7 @@ brew install --cask md-sticky-notes
 ### Manual Download
 If you don't use Homebrew, you can download the DMG directly. Note that manual installation requires extra steps to bypass macOS Gatekeeper.
 
-1. Download [`MDStickyNotes.dmg`](https://github.com/jaesuny/markdown-sticky-notes/releases/download/v1.0.1/MDStickyNotes.dmg)
+1. Download [`MDStickyNotes.dmg`](https://github.com/jaesuny/markdown-sticky-notes/releases/download/v1.1.0/MDStickyNotes.dmg)
 2. Open the DMG and drag the app to Applications
 3. **First launch** — macOS will block the app since it is not notarized. To allow it:
    1. Double-click the app — macOS will show a warning and block it
