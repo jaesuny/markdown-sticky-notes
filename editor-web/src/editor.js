@@ -523,8 +523,8 @@ function buildMarkdownDecos(view) {
 
           // ── Lists ───────────────────────────────────────────
           case 'ListMark': {
-            // Task list dashes are handled by TaskMarker case
-            if (view.state.sliceDoc(node.to, node.to + 2).startsWith(' [')) break;
+            // Task list dashes are handled by TaskMarker case (match " [ ]" or " [x]" only)
+            if (/^ \[[ xX]\]/.test(view.state.sliceDoc(node.to, node.to + 4))) break;
 
             // Don't replace when cursor is on this line (allow editing)
             if (cursorOnLine(node.from)) {
