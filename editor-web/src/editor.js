@@ -658,35 +658,37 @@ function buildMathDecorations(state) {
     if (!formula) continue;
 
     const isEditing = cursorInside(mFrom, mTo);
-    const measuredHeight = measureMathHeight(formula, true);
-    const startLine = state.doc.lineAt(mFrom);
-    const endLine = state.doc.lineAt(mTo);
-    const lineCount = endLine.number - startLine.number + 1;
-    // Ensure minimum line height (prevent compression with many source lines)
-    const minLineHeight = 22;
-    const lineHeight = Math.max(Math.ceil(measuredHeight / lineCount), minLineHeight);
-    const totalHeight = lineHeight * lineCount;
 
-    // Add line decorations: adjust line-height, toggle editing class
-    // Skip height override when editing — prevents line jump when completing $$
-    const baseClass = 'cm-math-source-line';
-    const lineClass = isEditing ? `${baseClass} cm-math-editing` : baseClass;
-    for (let i = startLine.number; i <= endLine.number; i++) {
-      const line = state.doc.line(i);
-      const attrs = { class: lineClass };
-      if (!isEditing) {
-        attrs.style = `line-height:${lineHeight}px;height:${lineHeight}px;`;
+    // When editing: skip ALL decorations — lines stay normal (no spacing jump)
+    // When not editing: overlay pattern with adjusted line-height
+    if (!isEditing) {
+      const measuredHeight = measureMathHeight(formula, true);
+      const startLine = state.doc.lineAt(mFrom);
+      const endLine = state.doc.lineAt(mTo);
+      const lineCount = endLine.number - startLine.number + 1;
+      const minLineHeight = 22;
+      const lineHeight = Math.max(Math.ceil(measuredHeight / lineCount), minLineHeight);
+      const totalHeight = lineHeight * lineCount;
+
+      for (let i = startLine.number; i <= endLine.number; i++) {
+        const line = state.doc.line(i);
+        widgets.push(
+          Decoration.line({
+            attributes: {
+              style: `line-height:${lineHeight}px;height:${lineHeight}px;`,
+              class: 'cm-math-source-line',
+            },
+          }).range(line.from)
+        );
       }
-      widgets.push(Decoration.line({ attributes: attrs }).range(line.from));
-    }
 
-    // Add overlay widget at first line (inline widget with absolute positioning)
-    widgets.push(
-      Decoration.widget({
-        widget: new MathOverlayWidget(formula, totalHeight),
-        side: -1, // Before line content
-      }).range(startLine.from)
-    );
+      widgets.push(
+        Decoration.widget({
+          widget: new MathOverlayWidget(formula, totalHeight),
+          side: -1,
+        }).range(startLine.from)
+      );
+    }
   }
 
   // 2. Inline math: $...$  (single line, not $$)
