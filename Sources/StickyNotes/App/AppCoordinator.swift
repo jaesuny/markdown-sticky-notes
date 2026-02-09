@@ -26,6 +26,9 @@ class AppCoordinator: ObservableObject {
         self.noteManager = NoteManager(persistenceManager: persistenceManager)
         self.windowManager = WindowManager()
 
+        // Wire up SharedWebViewManager
+        SharedWebViewManager.shared.coordinator = self
+
         setupBindings()
         openInitialWindows()
     }
@@ -44,9 +47,9 @@ class AppCoordinator: ObservableObject {
     /// Otherwise, delete the note (Apple Stickies behavior).
     func closeNoteWindow(_ noteId: UUID) {
         windowManager.removeWindow(for: noteId)
+        SharedWebViewManager.shared.removeCachedState(for: noteId)
 
         if isQuitting {
-            // saveAllNotesImmediately() already flushed JS + filtered empty notes
             return
         }
         // User explicitly closed — delete the note
@@ -136,49 +139,15 @@ class AppCoordinator: ObservableObject {
               let noteId = UUID(uuidString: idString) else { return }
 
         // Small delay to ensure windows are fully loaded
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.windowManager.bringToFront(noteId)
         }
     }
 
     /// Flush JS editor content and cursor position, then save — called on app termination
     func saveAllNotesImmediately() {
-        var pending = 0
-
-        // Pull latest content and cursor position from each editor's JS
-        for note in noteManager.notes {
-            guard let wc = windowManager.getWindowController(for: note.id),
-                  let webView = wc.webView else { continue }
-
-            pending += 3  // Three async calls per note
-
-            webView.evaluateJavaScript("window.getContent()") { [weak self] result, _ in
-                if let content = result as? String {
-                    self?.noteManager.updateNoteContent(note.id, content: content)
-                }
-                pending -= 1
-            }
-
-            webView.evaluateJavaScript("window.getCursorPosition()") { [weak self] result, _ in
-                if let position = result as? Int {
-                    self?.noteManager.updateNoteCursorPosition(note.id, cursorPosition: position)
-                }
-                pending -= 1
-            }
-
-            webView.evaluateJavaScript("window.getScrollTop()") { [weak self] result, _ in
-                if let scrollTop = result as? Double {
-                    self?.noteManager.updateNoteScrollTop(note.id, scrollTop: scrollTop)
-                }
-                pending -= 1
-            }
-        }
-
-        // Spin RunLoop to let async JS callbacks complete (max 0.5s)
-        let deadline = Date().addingTimeInterval(0.5)
-        while pending > 0 && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
+        // Flush the single shared WKWebView's current state
+        SharedWebViewManager.shared.flushCurrentNoteState()
 
         // Filter out empty notes, then save to disk
         let nonEmptyNotes = noteManager.notes.filter {
@@ -208,19 +177,16 @@ class AppCoordinator: ObservableObject {
     private func calculateNewNotePosition() -> CGPoint {
         let noteSize = CGSize(width: 300, height: 360)
 
-        // Multi-monitor: find the screen containing the mouse cursor
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouseLocation) }
             ?? NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
 
-        // Count windows already on this screen for cascade offset
         let existingFrames: [NSRect] = windowManager.getAllWindowIds().compactMap {
             windowManager.getWindowController(for: $0)?.window?.frame
         }
         let count = existingFrames.filter { visibleFrame.intersects($0) }.count
 
-        // Cascade diagonally from screen center (down-right visually)
         let step: CGFloat = 30
         let x = visibleFrame.midX - noteSize.width / 2 + CGFloat(count) * step
         let y = visibleFrame.midY - noteSize.height / 2 - CGFloat(count) * step

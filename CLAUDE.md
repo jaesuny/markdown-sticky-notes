@@ -23,7 +23,7 @@ cd editor-web && npm run build && cp dist/editor.bundle.js ../build/StickyNotes.
 
 Hybrid native + web macOS app:
 - **Swift/SwiftUI**: App shell, NSPanel windows, UserDefaults persistence
-- **WKWebView + CodeMirror 6**: Markdown editor with KaTeX math
+- **Single shared WKWebView + CodeMirror 6**: Markdown editor with KaTeX math — one WKWebView reparented to the active (key) window, inactive windows show snapshots
 - **Bridge**: `WKScriptMessageHandler` bidirectional messaging
 
 ### Editor Rendering (editor-web/src/editor.js)
@@ -54,20 +54,37 @@ if (cursorInside(node.from, node.to)) break; // skip replace, show raw
 ```
 적용 대상: InlineCode, 인라인/블록 수식, HR, TaskMarker
 
+### Single WKWebView Architecture
+
+```
+Before: Window1[WKWebView] Window2[WKWebView] Window3[WKWebView]  (~125MB for 5 notes)
+After:  Window1[Snapshot]  Window2[WKWebView]  Window3[Snapshot]   (~30MB for 5 notes)
+                           (active/key window)
+```
+
+- **SharedWebViewManager** (singleton): 단일 WKWebView 소유, EditorState 직렬화/복원으로 노트 전환
+- **NoteWindowController**: `windowDidBecomeKey` → blur→snapshot→move WebView chain
+- **editor.js**: `serializeState()`/`restoreState(json)` API, `noteId` 기반 bridge 메시지
+
+**Pre-rendering**: `markReady()`에서 WebView alpha=0 상태로 비활성 노트 순차 렌더링+스냅샷. `suppressContentChange`로 contentChanged 디바운스 억제 필수 (없으면 active note 콘텐츠 덮어쓰기).
+
+Window switch flow (synchronous): `takeSnapshot()` via RunLoop spin (WebView stays in old window, max 100ms) → show snapshot on old window → move WebView to new window → `switchToNote()` → reveal after 150ms + `focusEditor()`
+
 ### Key Files
 
 ```
 editor-web/src/editor.js          # 에디터 전체 (ViewPlugin + StateField + theme)
 editor-web/webpack.config.cjs     # 단일 번들, 폰트 base64 인라인
-Sources/StickyNotes/Views/NoteWindow/NoteWebView.swift  # WKWebView + 리소스 로딩
-Sources/StickyNotes/Bridge/EditorBridge.swift            # Swift-JS 메시지 핸들러
+Sources/StickyNotes/App/SharedWebViewManager.swift       # 단일 WKWebView 소유, 노트 전환 (stateCache)
+Sources/StickyNotes/Bridge/SharedEditorBridge.swift      # noteId 기반 Swift-JS 메시지 라우팅
+Sources/StickyNotes/Views/NoteWindow/NoteWindowController.swift  # WebView reparent, snapshot/preview
 Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 ```
 
 ### Swift-JS Bridge
 
-- **JS → Swift**: `sendToBridge(action, data)` → `ready`, `contentChanged`, `requestSave`, `log`, `error`
-- **Swift → JS**: `window.setContent(content)`, `window.getContent()`, `window.openSearch()`
+- **JS → Swift**: `sendToBridge(action, data)` → `ready`, `contentChanged`, `requestSave`, `log`, `error` — 모든 메시지에 `noteId` 포함
+- **Swift → JS**: `window.setContent(content)`, `window.getContent()`, `window.openSearch()`, `window.serializeState()`, `window.restoreState(json)`, `window.setCurrentNoteId(id)`, `window.prepareForSnapshot()` (snapshotMode + transitions 끄고 커서→0 + blur), `window.endSnapshotMode()` (snapshotMode 해제 + transitions 복원)
 - Console.log 인터셉트: `WKUserScript` at document start → Swift 콘솔로 전달
 
 ## Implementation Status
@@ -76,7 +93,8 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 - **Phase 2 ✅**: CodeMirror 6, syntax tree decorations, KaTeX math, cursor unfold
 - **Phase 3 ✅**: 추가 마크다운 요소 (취소선, 리스트 스타일, 체크박스 위젯, 테이블)
 - **Phase 4 ✅**: Titlebar 컨트롤 (핀/투명도/색깔), Always-on-top, Cmd+F/Cmd+Shift+F 검색
-- **Phase 5 (진행중)**: 디자인 개선, 버그 수정, Known Issues 해결
+- **Phase 5 ✅**: Single shared WKWebView 아키텍처 (메모리 ~80% 절감)
+- **Phase 6 (진행중)**: 디자인 개선, 버그 수정, Known Issues 해결
 
 ## Gotchas
 
@@ -111,6 +129,18 @@ Sources/StickyNotes/App/AppCoordinator.swift             # 앱 조율 (Combine)
 29. **Inline 요소 애니메이션 한계**: `Decoration.replace()`는 소스를 DOM에서 제거 → crossfade 불가. `mark + widget` 조합은 sibling으로 배치되어 둘 다 공간 차지 → line-height 증가. `font-size: 0`도 레이아웃에 영향. Block은 `position: absolute` overlay 가능하지만 inline은 텍스트 흐름 때문에 불가. **현재 결론: inline math는 애니메이션 없이 즉시 전환**
 30. **EditorView.theme()에서 @keyframes 미지원**: `style-mod` 라이브러리 기반이라 `@keyframes` 정의 불가 — `document.head.appendChild(style)`로 별도 `<style>` 요소에 keyframes 주입, theme에서는 `animation` 속성만 참조
 31. **리스트 마커 위젯 패턴**: `ListMark` 노드를 `Decoration.replace()` + 커스텀 위젯으로 교체. Bullet은 `•` 문자, Ordered는 숫자 + `.`. `cursorOnLine()` 체크로 커서가 있을 때만 원본 마커 표시 (편집 가능). 다색 배경 대응: `color: inherit` + `opacity`로 어떤 파스텔 배경에서든 조화
+32. **Single WKWebView 전환 순서**: 윈도우 전환 시 반드시 blur→snapshot→move 순서. WebView를 새 윈도우로 먼저 옮기면 구 윈도우가 빈 상태로 보임. `takeSnapshot()`은 WebView가 아직 구 윈도우에 있을 때 호출해야 올바른 크기/내용 캡처
+33. **switchToNote 내 콘텐츠 추출**: `evaluateJavaScript("getContent()")` 별도 호출은 비동기 타이밍에 의해 새 노트의 content를 반환할 수 있음 — `serializeState()` JSON에서 `doc` 필드를 추출하는 방식으로 해결 (직렬화 시점에 캡처됨)
+34. **windowDidResignKey 비움 패턴**: detach를 resignKey에서 하면 새 윈도우의 `attachWebView()`와 타이밍 경합 발생 — detach는 새 윈도우의 `attachWebView()` 내부에서만 수행. resignKey는 의도적으로 비워둠
+35. **WKWebView 포커스 복원**: `makeFirstResponder(wv)` 만으로는 CodeMirror 에디터에 포커스가 안 감 — `evaluateJavaScript("window.focusEditor()")` 추가 호출 필요. `editorView.focus()`를 래핑한 JS API
+36. **RunLoop spin으로 동기 스냅샷**: 비동기 `takeSnapshot` 체인은 타이밍 갭으로 빈 창/깜빡임 유발 — `flushCurrentNoteState()`와 동일한 RunLoop spin 패턴으로 동기적 처리. `RunLoop.current.run(mode: .default, before:)` 반복으로 콜백 수신 (최대 100ms)
+37. **Pre-rendering 잘못된 콘텐츠 → `suppressContentChange`로 해결**: pre-rendering 중 `setContentForSnapshot()` → `dispatch()` → `updateListener` → `contentChanged` 디바운스 → `currentNoteId`가 null이라 `activeNoteId`로 라우팅 → active note의 콘텐츠가 pre-render 중인 노트의 것으로 덮어써짐. compositor 타이밍이 아니라 **bridge 메시지 라우팅 버그**. `suppressContentChange` 플래그로 프로그래밍적 콘텐츠 변경(`setContent`/`restoreState`/`setContentForSnapshot`) 시 `contentChanged` 발생 억제
+38. **스냅샷 모드 (`cm-snapshot-mode`)**: `prepareForSnapshot()`은 JS 플래그 + CSS 이중 방어: (1) `snapshotMode=true` → `cursorInside()`/`cursorOnLine()` false, `cm-cursor-line` 미추가, (2) CSS `!important`로 `.cm-md-marker`, `.cm-md-url` 강제 숨김 + `.cm-cursorLayer/.cm-selectionLayer { display: none }` + `transition: none`. JS 분기만으로는 CodeMirror decoration diffing 타이밍에 의해 이전 `cm-cursor-line` 클래스가 잔존할 수 있으므로 CSS override 필수
+39. **CSS transition과 스냅샷 경합**: overlay 패턴의 CSS transition (HR 300ms, math 200ms)이 스냅샷 캡처와 경합 — transition 진행 중에 snapshot하면 소스 텍스트가 반투명하게 보임. `cm-snapshot-mode` 클래스가 `transition: none !important`로 해결. Compositor wait도 50ms로 단축 가능
+40. **`callAsyncJavaScript` 활용**: 두 가지 용도 — (1) 복잡한 문자열 전달 (JSON 등 이스케이핑 우회), (2) `await` + `requestAnimationFrame`으로 compositor paint 완료 대기. 단순 함수 호출은 `evaluateJavaScript`가 안정적 (microtask 지연 없음). Pre-rendering은 `callAsyncJavaScript`로 content 전달 + double-rAF await를 단일 호출에서 처리. 파라미터: `callAsyncJavaScript("fn(arg)", arguments: ["arg": value], in: nil, in: .page)` — `in:` 두 개 (frame, contentWorld)
+41. **`suppressContentChange` 패턴**: `setContent`/`restoreState`/`setContentForSnapshot`에서 `clearTimeout(debounceTimer)` + `suppressContentChange=true` → `dispatch()` → `suppressContentChange=false`. CodeMirror `dispatch`는 동기적이므로 `updateListener`가 플래그 활성 중에 호출됨. 프로그래밍적 콘텐츠 교체가 `contentChanged` bridge 메시지를 발생시키지 않도록 방어. 없으면: (1) pre-rendering 중 active note 콘텐츠 덮어쓰기, (2) 노트 전환 시 이전 노트의 디바운스가 새 noteId로 잘못된 콘텐츠 저장
+42. **`attachWebView` isReady 가드**: 에디터가 `markReady()` 전에 다른 윈도우로 전환되면 `serializeState()`가 빈 에디터 상태(`""`)를 직렬화하여 기존 콘텐츠 삭제. `manager.isReady` 체크로 방어 — false면 직렬화/스냅샷 건너뛰고 text preview 표시
+43. **`cacheSerializedState` 전체 상태 저장**: `serializeState()` JSON에는 `{doc, anchor, head, scrollTop}` 포함. 기존에는 `doc`만 추출하여 NoteManager에 저장 → 앱 재시작 시 cursor/scroll 소실. `anchor` → `updateNoteCursorPosition`, `scrollTop` → `updateNoteScrollTop` 추가로 영속화. `switchToNote`의 중복 코드도 `cacheSerializedState` 재사용으로 정리
 
 ## Lezer Markdown Node Names
 

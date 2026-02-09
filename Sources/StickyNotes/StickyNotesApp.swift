@@ -73,22 +73,18 @@ struct MenuBarCommands: Scene {
                 }
             }
 
-            // Edit menu — Find in note (Cmd+F → WKWebView)
+            // Edit menu — Find in note (Cmd+F → shared WKWebView)
             CommandGroup(replacing: .textEditing) {
                 Button("Find...") {
-                    if let noteId = coordinator.focusedNoteId(),
-                       let wc = coordinator.windowManager.getWindowController(for: noteId),
-                       let webView = wc.webView {
-                        webView.evaluateJavaScript("window.openSearch()")
+                    if coordinator.focusedNoteId() != nil {
+                        SharedWebViewManager.shared.webView.evaluateJavaScript("window.openSearch()")
                     }
                 }
                 .keyboardShortcut("f", modifiers: .command)
 
                 Button("Find and Replace...") {
-                    if let noteId = coordinator.focusedNoteId(),
-                       let wc = coordinator.windowManager.getWindowController(for: noteId),
-                       let webView = wc.webView {
-                        webView.evaluateJavaScript("window.openSearchWithReplace()")
+                    if coordinator.focusedNoteId() != nil {
+                        SharedWebViewManager.shared.webView.evaluateJavaScript("window.openSearchWithReplace()")
                     }
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])

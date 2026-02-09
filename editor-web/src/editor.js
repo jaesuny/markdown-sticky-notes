@@ -6,7 +6,7 @@
 //   HighlightStyle                  — 보조 토큰 색상
 //   EditorView.theme()              — CSS 클래스 정의
 
-import { EditorState, StateField } from '@codemirror/state';
+import { EditorState, StateField, EditorSelection } from '@codemirror/state';
 import { EditorView, keymap, Decoration, WidgetType, ViewPlugin } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
@@ -89,10 +89,14 @@ import 'katex/dist/katex.min.css';
 
 // ─── Bridge ────────────────────────────────────────────────────────────────
 
+let currentNoteId = null;
+let snapshotMode = false; // When true, cursorInside() always returns false (no unfolds)
+let suppressContentChange = false; // When true, updateListener skips contentChanged bridge message
+
 function sendToBridge(action, data = {}) {
   if (window.webkit?.messageHandlers?.bridge) {
     try {
-      window.webkit.messageHandlers.bridge.postMessage({ action, ...data });
+      window.webkit.messageHandlers.bridge.postMessage({ action, noteId: currentNoteId, ...data });
     } catch (e) {
       console.error('Bridge error:', e);
     }
@@ -331,6 +335,7 @@ function buildMarkdownDecos(view) {
   const { from: curFrom, to: curTo } = view.state.selection.main;
 
   function cursorInside(from, to) {
+    if (snapshotMode) return false;
     return curFrom >= from && curTo <= to;
   }
 
@@ -345,11 +350,14 @@ function buildMarkdownDecos(view) {
   // Check if position is on the same line as cursor
   const cursorLine = view.state.doc.lineAt(curFrom).number;
   function cursorOnLine(pos) {
+    if (snapshotMode) return false;
     return view.state.doc.lineAt(pos).number === cursorLine;
   }
 
-  // Add cursor line decoration for marker visibility
-  addLineDeco(view.state.doc.line(cursorLine).from, 'cm-cursor-line');
+  // Add cursor line decoration for marker visibility (skip in snapshot mode)
+  if (!snapshotMode) {
+    addLineDeco(view.state.doc.line(cursorLine).from, 'cm-cursor-line');
+  }
 
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(view.state).iterate({
@@ -636,6 +644,7 @@ function buildMathDecorations(state) {
   let match;
 
   function cursorInside(from, to) {
+    if (snapshotMode) return false;
     return curFrom >= from && curTo <= to;
   }
 
@@ -659,18 +668,16 @@ function buildMathDecorations(state) {
     const totalHeight = lineHeight * lineCount;
 
     // Add line decorations: adjust line-height, toggle editing class
+    // Skip height override when editing — prevents line jump when completing $$
     const baseClass = 'cm-math-source-line';
     const lineClass = isEditing ? `${baseClass} cm-math-editing` : baseClass;
     for (let i = startLine.number; i <= endLine.number; i++) {
       const line = state.doc.line(i);
-      widgets.push(
-        Decoration.line({
-          attributes: {
-            style: `line-height:${lineHeight}px;height:${lineHeight}px;`,
-            class: lineClass,
-          },
-        }).range(line.from)
-      );
+      const attrs = { class: lineClass };
+      if (!isEditing) {
+        attrs.style = `line-height:${lineHeight}px;height:${lineHeight}px;`;
+      }
+      widgets.push(Decoration.line({ attributes: attrs }).range(line.from));
     }
 
     // Add overlay widget at first line (inline widget with absolute positioning)
@@ -1291,6 +1298,25 @@ const editorTheme = EditorView.theme({
     borderRadius: '2px',
   },
 
+  // ── Snapshot mode (disable transitions, hide cursor/selection) ──
+  '&.cm-snapshot-mode, &.cm-snapshot-mode *': {
+    transition: 'none !important',
+  },
+  '&.cm-snapshot-mode .cm-cursorLayer': {
+    display: 'none !important',
+  },
+  '&.cm-snapshot-mode .cm-selectionLayer': {
+    display: 'none !important',
+  },
+  '&.cm-snapshot-mode .cm-md-marker': {
+    fontSize: '0 !important',
+    opacity: '0 !important',
+  },
+  '&.cm-snapshot-mode .cm-md-url': {
+    fontSize: '0 !important',
+    opacity: '0 !important',
+  },
+
 }, { dark: false });
 
 // ─── Note Controls ──────────────────────────────────────────────────────────
@@ -1344,7 +1370,7 @@ function initEditor(initialContent = '') {
       highlightSelectionMatches(),
       editorTheme,
       EditorView.updateListener.of((update) => {
-        if (update.docChanged) {
+        if (update.docChanged && !suppressContentChange) {
           clearTimeout(debounceTimer);
           debounceTimer = setTimeout(() => {
             sendToBridge('contentChanged', {
@@ -1411,11 +1437,14 @@ function initEditor(initialContent = '') {
 
 window.setContent = function (content) {
   if (!editorView) return;
+  clearTimeout(debounceTimer);
+  suppressContentChange = true;
   editorView.dispatch(
     editorView.state.update({
       changes: { from: 0, to: editorView.state.doc.length, insert: content },
     })
   );
+  suppressContentChange = false;
 };
 
 window.getContent = function () {
@@ -1488,6 +1517,94 @@ window.dumpTree = function () {
     }
   });
   console.log(nodes.join('\n'));
+};
+
+// ─── Shared WebView APIs ────────────────────────────────────────────────────
+
+// Set the current note ID (called from Swift before loading content)
+window.setCurrentNoteId = function (id) {
+  currentNoteId = id;
+};
+
+// Serialize current editor state to JSON (doc + selection + scroll)
+window.serializeState = function () {
+  if (!editorView) return null;
+  const doc = editorView.state.doc.toString();
+  const sel = editorView.state.selection.main;
+  const scrollTop = editorView.scrollDOM.scrollTop;
+  return JSON.stringify({
+    doc,
+    anchor: sel.anchor,
+    head: sel.head,
+    scrollTop,
+  });
+};
+
+// Restore editor state from JSON
+window.restoreState = function (json) {
+  if (!editorView || !json) return;
+  try {
+    const s = typeof json === 'string' ? JSON.parse(json) : json;
+    const doc = s.doc || '';
+    const docLength = doc.length;
+    const anchor = Math.min(Math.max(0, s.anchor || 0), docLength);
+    const head = Math.min(Math.max(0, s.head || 0), docLength);
+    clearTimeout(debounceTimer);
+    suppressContentChange = true;
+    editorView.dispatch({
+      changes: { from: 0, to: editorView.state.doc.length, insert: doc },
+      selection: EditorSelection.single(anchor, head),
+    });
+    suppressContentChange = false;
+    if (s.scrollTop > 0) {
+      requestAnimationFrame(() => {
+        editorView.scrollDOM.scrollTop = s.scrollTop;
+      });
+    }
+  } catch (e) {
+    console.error('[Editor] restoreState error:', e);
+  }
+};
+
+window.focusEditor = function () {
+  if (editorView) editorView.focus();
+};
+
+// Prepare for snapshot: disable transitions, collapse all cursor-unfolds, hide cursor.
+// Does NOT scroll — preserves the user's viewport for an accurate snapshot.
+window.prepareForSnapshot = function () {
+  if (!editorView) return;
+  snapshotMode = true;
+  editorView.dom.classList.add('cm-snapshot-mode');
+  editorView.dispatch({
+    selection: EditorSelection.single(0, 0),
+  });
+  editorView.contentDOM.blur();
+};
+
+// Set content and prepare for snapshot in one call — single transaction, single DOM update.
+// Used by pre-rendering to eliminate intermediate states between setContent and prepareForSnapshot.
+window.setContentForSnapshot = function (content) {
+  if (!editorView) return;
+  clearTimeout(debounceTimer);
+  suppressContentChange = true;
+  snapshotMode = true;
+  editorView.dom.classList.add('cm-snapshot-mode');
+  editorView.dispatch(
+    editorView.state.update({
+      changes: { from: 0, to: editorView.state.doc.length, insert: content },
+      selection: EditorSelection.single(0, 0),
+    })
+  );
+  suppressContentChange = false;
+  editorView.contentDOM.blur();
+};
+
+// Re-enable transitions and cursor unfold behavior after snapshot.
+window.endSnapshotMode = function () {
+  if (!editorView) return;
+  snapshotMode = false;
+  editorView.dom.classList.remove('cm-snapshot-mode');
 };
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────
