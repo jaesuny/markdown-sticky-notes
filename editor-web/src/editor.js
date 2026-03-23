@@ -1525,6 +1525,7 @@ window.dumpTree = function () {
 
 // Set the current note ID (called from Swift before loading content)
 window.setCurrentNoteId = function (id) {
+  clearTimeout(debounceTimer); // prevent stale debounce from writing to the wrong noteId
   currentNoteId = id;
 };
 
